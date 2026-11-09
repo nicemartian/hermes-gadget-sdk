@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace hg {
@@ -31,9 +32,22 @@ struct Font {
   uint16_t count;
   const uint8_t* bits;
   uint8_t ascent, line;
+  uint8_t mid;  // rows from the ascender line to the middle of a capital
 };
 
-extern const Font kHead, kBody, kHint;
+// One font per text scale of the pixel font (2, 3, 4), and large digits for every scale above.
+extern const Font kText2, kText3, kText4, kBig;
+
+// Smooth text for the whole UI: while on, Canvas::text draws these fonts instead of the 5x7
+// pixel font, and text is measured and wrapped by their widths. One display, so one switch.
+void set_text(bool on);
+bool text_on();
+// The font for a text scale, or null where the pixel font stays (scale 1).
+const Font* font_for(int scale);
+const Glyph* glyph(const Font& f, char32_t cp);  // null when the font has none
+// A string's width in 1/64 of a pixel-font column, whatever the scale: what fits in
+// `cols` columns is at most cols * 64. Code points without a glyph count a whole column.
+int text_units(std::string_view s);
 
 struct Rows {
   int y0, y1;  // panel rows [y0, y1)

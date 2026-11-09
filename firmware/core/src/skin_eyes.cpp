@@ -107,14 +107,8 @@ char32_t next_cp(std::string_view s, size_t& i) {
 }
 
 const Glyph* find(const Font& f, char32_t cp) {
-  int lo = 0, hi = f.count - 1;
-  while (lo <= hi) {
-    const int mid = (lo + hi) / 2;
-    if (f.glyphs[mid].cp == cp) return &f.glyphs[mid];
-    if (f.glyphs[mid].cp < cp) lo = mid + 1;
-    else hi = mid - 1;
-  }
-  return cp == '?' ? nullptr : find(f, '?');
+  const Glyph* g = glyph(f, cp);
+  return g || cp == '?' ? g : glyph(f, '?');
 }
 
 int text_width(const Font& f, std::string_view t) {
@@ -225,7 +219,42 @@ Target target_for(const UiModel& m) {
   }
 }
 
+bool g_text = false;
+
 }  // namespace
+
+void set_text(bool on) { g_text = on; }
+bool text_on() { return g_text; }
+
+const Font* font_for(int scale) {
+  switch (scale) {
+    case 2: return &kText2;
+    case 3: return &kText3;
+    case 4: return &kText4;
+    default: return scale >= 5 ? &kBig : nullptr;
+  }
+}
+
+const Glyph* glyph(const Font& f, char32_t cp) {
+  int lo = 0, hi = f.count - 1;
+  while (lo <= hi) {
+    const int mid = (lo + hi) / 2;
+    if (f.glyphs[mid].cp == cp) return &f.glyphs[mid];
+    if (f.glyphs[mid].cp < cp) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return nullptr;
+}
+
+int text_units(std::string_view s) {
+  // kText2 is drawn where the pixel font's columns are 12 pixels wide.
+  int units = 0;
+  for (size_t i = 0; i < s.size();) {
+    const Glyph* g = glyph(kText2, next_cp(s, i));
+    units += g ? (g->adv * 64 + 11) / 12 : 64;
+  }
+  return units;
+}
 
 bool Eyes::wants(const UiModel& m) {
   if (!m.hero || !m.yes.empty() || !m.no.empty() || m.qr || m.timer_permille >= 0) return false;
@@ -401,13 +430,13 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         draw_text(s, f, static_cast<int>(C) - text_width(f, line) / 2, y, line, c, a);
       };
       int y = kTextTop + 2;
-      centred(kHead, y, m.headline, kFg, 0.96f);
-      y += kHead.line + 1;
+      centred(kText3, y, m.headline, kFg, 0.96f);
+      y += kText3.line + 1;
       const int max_lines = std::max<int>(1, std::min<int>(m.caption_lines, 2));
       std::string detail = m.detail;
       if (speaking) std::replace(detail.begin(), detail.end(), '\n', ' ');
       if (detail == m.headline) detail.clear();  // a status that only repeats the headline
-      std::vector<std::string> lines = wrap(kBody, detail, chord(y, y + max_lines * kBody.line));
+      std::vector<std::string> lines = wrap(kText2, detail, chord(y, y + max_lines * kText2.line));
       if (static_cast<int>(lines.size()) > max_lines) {
         if (speaking) {  // the reply's latest lines
           lines.erase(lines.begin(), lines.end() - max_lines);
@@ -417,10 +446,10 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         }
       }
       for (const std::string& line : lines) {
-        centred(kBody, y, line, speaking ? kFg : kMuted, speaking ? 0.96f : 1.0f);
-        y += kBody.line;
+        centred(kText2, y, line, speaking ? kFg : kMuted, speaking ? 0.96f : 1.0f);
+        y += kText2.line;
       }
-      if (!m.hint.empty()) centred(kHint, 374, m.hint, kMuted, 0.8f);
+      if (!m.hint.empty()) centred(kText2, 372, m.hint, kMuted, 0.75f);
       mark(top, bottom);
     }
   }

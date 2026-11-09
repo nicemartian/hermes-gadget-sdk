@@ -13,19 +13,37 @@ namespace {
 
 // The background on backlit panels; emissive panels use true black (Ui::bg_).
 constexpr uint16_t kBg = rgb565(10, 14, 20);
-constexpr uint16_t kBar = rgb565(24, 31, 42);
-constexpr uint16_t kText = rgb565(232, 238, 242);
-constexpr uint16_t kDim = rgb565(132, 146, 160);
-constexpr uint16_t kFaint = rgb565(52, 62, 76);
-constexpr uint16_t kAccent = rgb565(242, 179, 61);
-constexpr uint16_t kGreen = rgb565(61, 214, 140);
-constexpr uint16_t kBlue = rgb565(90, 169, 242);
-constexpr uint16_t kRed = rgb565(242, 95, 92);
-constexpr uint16_t kYellow = rgb565(242, 201, 76);
-constexpr uint16_t kGreenDim = rgb565(28, 92, 62);
-constexpr uint16_t kBlueDim = rgb565(52, 96, 140);
-constexpr uint16_t kAccentDim = rgb565(110, 82, 30);
-constexpr uint16_t kRedDim = rgb565(122, 44, 44);
+// The palette. The stock colours, until the Eyes skin swaps in its own (apply_palette),
+// so every screen shares the skin's colours.
+uint16_t kBar = rgb565(24, 31, 42);
+uint16_t kText = rgb565(232, 238, 242);
+uint16_t kDim = rgb565(132, 146, 160);
+uint16_t kFaint = rgb565(52, 62, 76);
+uint16_t kAccent = rgb565(242, 179, 61);
+uint16_t kGreen = rgb565(61, 214, 140);
+uint16_t kBlue = rgb565(90, 169, 242);
+uint16_t kRed = rgb565(242, 95, 92);
+uint16_t kYellow = rgb565(242, 201, 76);
+uint16_t kGreenDim = rgb565(28, 92, 62);
+uint16_t kBlueDim = rgb565(52, 96, 140);
+uint16_t kAccentDim = rgb565(110, 82, 30);
+uint16_t kRedDim = rgb565(122, 44, 44);
+
+void apply_palette(bool skin) {
+  kBar = skin ? rgb565(28, 25, 36) : rgb565(24, 31, 42);
+  kText = skin ? rgb565(236, 232, 241) : rgb565(232, 238, 242);
+  kDim = skin ? rgb565(143, 136, 156) : rgb565(132, 146, 160);
+  kFaint = skin ? rgb565(60, 54, 70) : rgb565(52, 62, 76);
+  kAccent = skin ? rgb565(255, 196, 107) : rgb565(242, 179, 61);
+  kGreen = skin ? rgb565(95, 224, 138) : rgb565(61, 214, 140);
+  kBlue = skin ? rgb565(165, 139, 255) : rgb565(90, 169, 242);
+  kRed = skin ? rgb565(255, 107, 107) : rgb565(242, 95, 92);
+  kYellow = skin ? rgb565(255, 196, 107) : rgb565(242, 201, 76);
+  kGreenDim = skin ? rgb565(30, 92, 56) : rgb565(28, 92, 62);
+  kBlueDim = skin ? rgb565(74, 60, 128) : rgb565(52, 96, 140);
+  kAccentDim = skin ? rgb565(112, 84, 40) : rgb565(110, 82, 30);
+  kRedDim = skin ? rgb565(122, 44, 48) : rgb565(122, 44, 44);
+}
 
 class Hash {
  public:
@@ -55,6 +73,22 @@ class Hash {
 // Columns are code points (font::length), and cuts fall between them.
 std::string fit(std::string_view s, int max_chars) {
   if (max_chars <= 0) return {};
+  if (skin::text_on()) {  // by the smooth fonts' widths
+    const int max = max_chars * 63;
+    if (skin::text_units(s) <= max) return std::string(s);
+    const int dots = skin::text_units("..");
+    size_t cut = 0;
+    int used = 0;
+    while (cut < s.size()) {
+      size_t next = cut;
+      font::next(s, next);
+      const int u = skin::text_units(s.substr(cut, next - cut));
+      if (used + u + dots > max) break;
+      used += u;
+      cut = next;
+    }
+    return std::string(s.substr(0, cut)) + "..";
+  }
   if (static_cast<int>(font::length(s)) <= max_chars) return std::string(s);
   if (max_chars <= 2) return std::string(s.substr(0, font::prefix(s, static_cast<size_t>(max_chars))));
   return std::string(s.substr(0, font::prefix(s, static_cast<size_t>(max_chars - 2)))) + "..";
@@ -249,6 +283,15 @@ mascot::Frame mascot_frame(const UiModel& m) {
 
 // `b` (from mascot::pick) in `ink`, or the colour face at b's size, in b's frame.
 void draw_face(Canvas& c, int x, int y, const mascot::Bitmap& b, const mascot::Face* face, uint16_t ink) {
+  if (skin::text_on() && !(face && face->rgb565)) {
+    // The Eyes skin's face, in the mascot's square: the same two eyes as its hero screens
+    // (46 x 74, 112 apart, on a 190 square), shut for a blink.
+    const int n = b.size;
+    const int ew = std::max(4, n * 24 / 100), eh = b.frame == mascot::Frame::Blink ? std::max(3, n * 5 / 100) : std::max(6, n * 39 / 100);
+    const int cy = y + n / 2, half = n * 59 / 200;
+    for (int side : {-1, 1}) c.glow_box(x + n / 2 + side * half, cy, ew, eh, ew / 2, std::max(2, n / 9), ink);
+    return;
+  }
   if (face && face->rgb565) {
     const mascot::Band& band = face->band(b.frame);
     c.picture(x, y, b.size, face->rgb565, face->px, band.rgb565, band.y, band.rows);
@@ -426,6 +469,9 @@ void Ui::invalidate() { valid_ = false; }
 
 void Ui::set_skin(bool on, uint32_t frame_ms) {
   skin_on_ = on && panel_.round && display_.framebuffer_rows() == 0;
+  skin::set_text(skin_on_);  // every screen's text and colours, not only the skin's own
+  apply_palette(skin_on_);
+  if (skin_on_) bg_ = 0;  // one black for the face and the screens around it
   eyes_.set_frame_ms(frame_ms);
   valid_ = false;
 }
@@ -917,12 +963,19 @@ void Ui::draw_header(Canvas& c, const UiModel& m) {
   int r = hh / 2 - 2 * s;
   int cx = 4 * s + r;
   int cy = y0 + hh / 2;
-  draw_indicator(c, m, cx, cy, r);
   int tx = cx + r + 4 * s;
   int hs = s + 1;
   int cols = cols_for(info_.width - tx - 2 * s, hs);
-  c.text(tx, cy - (font::kGlyphHeight * hs) / 2, fit(m.headline, cols), hs, kText);
-  c.fill_rect(4 * s, y0 + hh - 1, info_.width - 8 * s, 1, kFaint);
+  const std::string head = fit(m.headline, cols);
+  if (skin_on_) {
+    // The Eyes skin centres the header like its hero captions: indicator and headline as one group.
+    const int shift = std::max(0, (info_.width - (tx + Canvas::text_width(head, hs))) / 2 - 2 * s);
+    cx += shift;
+    tx += shift;
+  }
+  draw_indicator(c, m, cx, cy, r);
+  c.text(tx, cy - (font::kGlyphHeight * hs) / 2, head, hs, kText);
+  if (!skin_on_) c.fill_rect(4 * s, y0 + hh - 1, info_.width - 8 * s, 1, kFaint);
 }
 
 int Ui::body_rows(const UiModel& m) const {
@@ -984,7 +1037,8 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
     auto detail_lines = wrap_text(m.detail, layout_.body_cols);
     int shown = layout_.body_rows - rows;
     for (int i = 0; i < shown; ++i) {
-      c.text(margin, y, detail_lines[static_cast<size_t>(i)], s, dcol);
+      const std::string& line = detail_lines[static_cast<size_t>(i)];
+      c.text(skin_on_ ? (w - Canvas::text_width(line, s)) / 2 : margin, y, line, s, dcol);
       y += lh;
     }
   }
@@ -996,7 +1050,8 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
   int first = m.scroll < 0 ? max_first : std::min(m.scroll, max_first);
   uint16_t col = m.screen == Screen::Ready ? kDim : kText;
   for (int i = 0; i < rows && first + i < total; ++i) {
-    c.text(margin, y + i * lh, lines[static_cast<size_t>(first + i)], s, col);
+    const std::string& line = lines[static_cast<size_t>(first + i)];
+    c.text(skin_on_ ? (w - Canvas::text_width(line, s)) / 2 : margin, y + i * lh, line, s, col);
   }
   if (total > rows) {
     // Scroll indicator along the right edge.
@@ -1572,6 +1627,7 @@ void Ui::hero_anim_rows(const UiModel& m, int& y0, int& y1) const {
   };
   int top = my + size * a.eyes_y0 / 1000, bottom = my + size * a.eyes_y1 / 1000;
   band_rows(mascot::Frame::Blink, top, bottom);
+  if (skin_on_ && !(m.face && m.face->rgb565)) top = my + size * 20 / 100, bottom = my + size * 80 / 100;  // the skin's eyes and their halo
   auto add = [&](int lo, int hi) {
     top = std::min(top, lo);
     bottom = std::max(bottom, hi);
@@ -1616,7 +1672,7 @@ void Ui::draw_hero(Canvas& c, const UiModel& m) {
   const int size = g.size, mx = g.x, my = g.y;
   const mascot::Anchors& a = mascot::anchors(m.face);
   const mascot::Bitmap b = mascot::pick(size, mascot_frame(m), m.face);
-  draw_face(c, mx, my, b, m.face, kText);
+  draw_face(c, mx, my, b, m.face, skin_on_ && caption_color(m.screen) == kText ? kAccent : skin_on_ ? caption_color(m.screen) : kText);
   const int stroke = std::max(2, size / 48);
   auto waves = [&](int cx, int cy, int dir, int lit, int phase, uint16_t on, uint16_t dim, int r0) {
     for (int i = 0; i < 3; ++i) {
@@ -2204,7 +2260,7 @@ void Ui::draw_clock(const UiModel& m) {
       }
     }
 
-    if (face_y >= 0) draw_face(panel, cx + dx - face.size / 2, face_y + dy, face, m.face, kText);
+    if (face_y >= 0) draw_face(panel, cx + dx - face.size / 2, face_y + dy, face, m.face, skin_on_ ? kAccent : kText);
     panel.text(cx + dx - Canvas::text_width(m.clock_time, k) / 2, time_y + dy, m.clock_time, k, kText);
     if (Canvas::text_width(m.clock_date, ds) <= avail(date_y, date_y + Canvas::line_height(ds)))
       panel.text(cx + dx - Canvas::text_width(m.clock_date, ds) / 2, date_y + dy, m.clock_date, ds, kDim);

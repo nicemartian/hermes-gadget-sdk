@@ -13,19 +13,20 @@ ROOT = Path(__file__).resolve().parent.parent
 TTF = ROOT / "assets/fonts/Manrope-wght.ttf"
 OUT = ROOT / "firmware/core/src/skin_font_data.cpp"
 
-# name, pixel size, weight
-FONTS = [("kHead", 26, 600), ("kBody", 19, 500), ("kHint", 15, 500)]
-CODEPOINTS = (
-    list(range(0x20, 0x7F)) + list(range(0xA0, 0x100)) + list(range(0x410, 0x450)) + [0x401, 0x451, 0x2026, 0x2013, 0x2014, 0x2019]
-)
+ASCII = list(range(0x20, 0x7F))
+FULL = ASCII + list(range(0xA0, 0x100)) + list(range(0x410, 0x450)) + [0x401, 0x451, 0x2026, 0x2013, 0x2014, 0x2019]
+DIGITS = [ord(c) for c in "0123456789:%.- APM"]
+# name, pixel size, weight, code points. One per text scale of the pixel font: its capitals are about
+# as tall as the 7-row glyph at that scale. kBig serves every scale from 5 up (the clock's digits).
+FONTS = [("kText2", 17, 500, FULL), ("kText3", 26, 600, FULL), ("kText4", 34, 600, ASCII), ("kBig", 68, 500, DIGITS)]
 
 
-def bake(size, weight):
+def bake(size, weight, codepoints):
     font = ImageFont.truetype(str(TTF), size)
     font.set_variation_by_axes([weight])
     ascent, descent = font.getmetrics()
     glyphs, blob = [], bytearray()
-    for cp in sorted(set(CODEPOINTS)):
+    for cp in sorted(set(codepoints)):
         ch = chr(cp)
         adv = round(font.getlength(ch))
         box = font.getbbox(ch)  # relative to the origin at the ascender line
@@ -45,7 +46,8 @@ def bake(size, weight):
         else:
             w = h = 0
         glyphs.append((cp, w, h, box[0] if w else 0, box[1] if w else 0, adv, off))
-    return ascent, descent, glyphs, blob
+    cap = font.getbbox("H")
+    return ascent, descent, glyphs, blob, (cap[1] + cap[3]) // 2
 
 
 def main():
@@ -57,8 +59,9 @@ def main():
         "namespace hg::skin {",
         "namespace {",
     ]
-    for name, size, weight in FONTS:
-        ascent, descent, glyphs, blob = bake(size, weight)
+    baked = {}
+    for name, size, weight, cps in FONTS:
+        ascent, descent, glyphs, blob, mid = baked[name] = bake(size, weight, cps)
         out.append(f"const uint8_t {name}Bits[] = {{")
         for i in range(0, len(blob), 24):
             out.append("  " + ",".join(str(b) for b in blob[i : i + 24]) + ",")
@@ -69,9 +72,9 @@ def main():
         out.append("};")
         out.append(f"// {size} px, weight {weight}: {len(glyphs)} glyphs, {len(blob)} bytes")
     out.append("}  // namespace")
-    for name, size, weight in FONTS:
-        ascent, descent, glyphs, _ = bake(size, weight)
-        out.append(f"const Font {name} = {{{name}Glyphs, {len(glyphs)}, {name}Bits, {ascent}, {ascent + descent}}};")
+    for name, size, weight, cps in FONTS:
+        ascent, descent, glyphs, _, mid = baked[name]
+        out.append(f"const Font {name} = {{{name}Glyphs, {len(glyphs)}, {name}Bits, {ascent}, {ascent + descent}, {mid}}};")
     out.append("}  // namespace hg::skin")
     OUT.write_text("\n".join(out) + "\n")
     print("wrote", OUT, OUT.stat().st_size, "bytes of source")

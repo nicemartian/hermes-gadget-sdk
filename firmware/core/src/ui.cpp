@@ -424,6 +424,23 @@ Ui::Ui(Display& display)
 
 void Ui::invalidate() { valid_ = false; }
 
+void Ui::set_skin(bool on, uint32_t frame_ms) {
+  skin_on_ = on && panel_.round && display_.framebuffer_rows() == 0;
+  eyes_.set_frame_ms(frame_ms);
+  valid_ = false;
+}
+
+bool Ui::skinned(const UiModel& m) const { return skin_on_ && skin::Eyes::wants(m); }
+
+void Ui::draw_skin(const UiModel& m) {
+  // The skin owns the whole panel, ring included, and says which rows it changed.
+  const bool full = !valid_ || full_face_ != FullFace::Skin;
+  full_face_ = FullFace::Skin;
+  valid_ = true;
+  for (const skin::Rows& r : eyes_.draw(m, display_.framebuffer(), panel_.width, panel_.height, panel_.swap_bytes, full))
+    send(r.y0, r.y1);
+}
+
 Canvas Ui::canvas() {
   // UI row y is panel row y + oy_. The framebuffer holds panel rows starting at
   // frame_origin_, so row y lives at buffer row y + oy_ - frame_origin_, which is
@@ -531,7 +548,8 @@ void Ui::draw_frame(const UiModel& m) {
   // holds the rows a change would resend, so any change repaints it. Otherwise only the
   // band's pixels that changed go out, after whatever this frame draws (update_ring), and a
   // comet's step computes only the pixels it lights where it was or where it is now.
-  const EdgeRing ring = panel_.round ? edge_ring(m) : EdgeRing{};
+  const bool skin = skinned(m);  // the skin draws its own ring
+  const EdgeRing ring = panel_.round && !skin ? edge_ring(m) : EdgeRing{};
   if ((ring.kind == EdgeRing::Kind::None) != (ring_.kind == EdgeRing::Kind::None)) valid_ = false;
   if (ring != ring_ && display_.framebuffer_rows() > 0) valid_ = false;
   bool ring_moved = valid_ && ring != ring_;
@@ -544,6 +562,10 @@ void Ui::draw_frame(const UiModel& m) {
   const bool dot_moved = ring_moved && ring_.kind == EdgeRing::Kind::Ticks && ring.kind == EdgeRing::Kind::Ticks;
   const int32_t dot_was = ring_dot_y16_;
   set_ring(ring);
+  if (skin) {
+    draw_skin(m);
+    return;
+  }
   if (m.screen == Screen::Alarm) {
     draw_alarm(m);
     return;

@@ -71,6 +71,8 @@ struct DeviceProfile {
   // Frame timing (hg::FrameStats, the console's `perf` command): on from boot,
   // the frame budget, and how often a summary goes to the log (0: never).
   bool frame_stats = false;
+  // The Eyes skin (hg/skin.hpp) draws the mascot screens: round panels with a whole framebuffer.
+  bool skin_eyes = false;
   uint32_t frame_budget_us = FrameStats::kDefaultBudgetUs;
   uint32_t frame_log_ms = 10000;
   // Room for a face from Hermes (docs/protocol.md#faces): about 27 KB, and its message at once.
@@ -855,6 +857,7 @@ class App {
   std::vector<int16_t> beep_pcm_;  // built on the first beep
 
   // frame timing: the running statistics while `perf` is on, and the bench
+  uint32_t fine_at_ = 0;  // the skin's last fine frame (kFineMs)
   std::unique_ptr<FrameStats> frame_stats_;
   uint32_t frame_log_at_ = 0, frame_log_frames_ = 0;
   enum class Bench : uint8_t { None, Scroll, Mascot, Redraw, Settings };

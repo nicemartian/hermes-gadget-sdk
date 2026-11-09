@@ -61,6 +61,8 @@ constexpr uint32_t kManualScrollPauseMs = 15000;  // UP/DOWN pauses automatic pa
 constexpr uint8_t kCaptionLines = 3;          // detail lines on pairing, setup and card screens
 constexpr uint8_t kPromptLines = 4;           // ...and on a question (the renderer drops lines on small screens)
 constexpr uint32_t kFrameMs = 100;
+// The Eyes skin's frame period: its screens are redrawn this often, the rest at kFrameMs.
+constexpr uint32_t kFineMs = 33;
 constexpr uint32_t kSensorIntervalMs = 2000;
 constexpr uint32_t kDefaultCardMs = 15000;
 constexpr int kDashboardVersion = 1;    // the dashboard message this firmware draws
@@ -380,6 +382,7 @@ void App::begin() {
 
   add_timer_actions();  // timer.start/status/cancel, beside the built-in actions
   if (hal_.display) ui_ = std::make_unique<Ui>(*hal_.display);
+  if (ui_) ui_->set_skin(profile_.skin_eyes, kFineMs);
   if (ui_ && profile_.faces && profile_.colour_face_alloc && !colour_) {
     const int px = std::min(256, ui_->face_px());
     const size_t row = static_cast<size_t>(px) * 2;
@@ -2425,6 +2428,12 @@ void App::tick() {
     wall_valid_ = hal_.system && hal_.system->wall_time(wall_);
     ++model_.frame;
     update_model();
+  }
+  // The skin moves between the app's frames: the same model, a later time.
+  if (profile_.skin_eyes && ui_ && t / kFineMs != fine_at_) {
+    fine_at_ = t / kFineMs;
+    model_.fine = fine_at_;
+    if (ui_->skinned(model_) && !display_sleeping_) render(model_);
   }
 }
 

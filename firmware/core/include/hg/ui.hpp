@@ -18,6 +18,7 @@
 #include "hg/i18n.hpp"
 #include "hg/mascot.hpp"
 #include "hg/qr.hpp"
+#include "hg/skin.hpp"
 
 namespace hg {
 
@@ -99,6 +100,7 @@ struct UiModel {
   bool battery_charging = false;
   bool battery_low = false;
   uint32_t frame = 0;    // animation frame, advanced by the app
+  uint32_t fine = 0;     // the Eyes skin's finer frame counter (App::kFineMs each), 0 without the skin
   std::string hint;      // bottom bar
   std::string yes, no;   // answer buttons under the hero caption (Prompt screen)
   // Show the mascot as large as fits, with headline/detail as a caption,
@@ -192,6 +194,10 @@ class Ui {
   void render(const UiModel& model);
   // Forces a full redraw on the next render (after something else drew).
   void invalidate();
+  // The Eyes skin (hg/skin.hpp) draws the mascot screens instead of the stock renderer, on a
+  // round panel whose framebuffer holds every row. `frame_ms` is the model's frame period.
+  void set_skin(bool on, uint32_t frame_ms);
+  bool skinned(const UiModel& m) const;
   // Frame timing: while `stats` is set, every render is timed with `clock` and
   // recorded there. Null (the default) turns it off and leaves the clock unread.
   void measure(FrameStats* stats, System* clock);
@@ -320,6 +326,7 @@ class Ui {
   void draw_alarm(const UiModel& m);
   void draw_clock(const UiModel& m);
   void draw_battery_face(const UiModel& m);  // LowBattery, Charging, Charged
+  void draw_skin(const UiModel& m);
   Display& display_;
   DisplayInfo panel_;
   DisplayInfo info_;
@@ -365,8 +372,10 @@ class Ui {
   // The screen that owns the whole panel right now, and the hash of what it drew.
   // Leaving it repaints everything (draw_frame); each face repaints when the flag
   // is not itself, so Clock -> Alarm -> Clock in one minute still redraws.
-  enum class FullFace : uint8_t { None, Alarm, Clock, Battery };
+  enum class FullFace : uint8_t { None, Alarm, Clock, Battery, Skin };
   FullFace full_face_ = FullFace::None;
+  bool skin_on_ = false;
+  skin::Eyes eyes_;
   uint32_t face_hash_ = 0;
 };
 

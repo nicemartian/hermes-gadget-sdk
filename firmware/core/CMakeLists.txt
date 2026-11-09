@@ -23,6 +23,8 @@ set(HG_CORE_SOURCES
     src/setup.cpp
     src/tones.cpp
     src/touch.cpp
+    src/skin_eyes.cpp
+    src/skin_font_data.cpp
     src/ui.cpp
     src/vad.cpp
     src/wifi_networks.cpp

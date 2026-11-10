@@ -47,6 +47,15 @@ menu "Hermes Gadget"
             Adds about 108 KB of flash on the AMOLED-1.75C. Off on every
             board and in release images. docs/tailnet.md
 
+    config HG_SKIN_EYES
+        bool "Eyes skin (round panels with a full framebuffer)"
+        default n
+        help
+            Draws the anti-aliased Eyes face, its Manrope text and its colours
+            on every screen instead of the stock mascot and pixel font. Only
+            takes effect on a round panel whose framebuffer holds every row.
+            Adds about 100 KB of flash for the font.
+
     config HG_FRAME_STATS
         bool "Time every frame from boot"
         default n

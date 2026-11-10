@@ -564,6 +564,9 @@ extern "C" void app_main(void) {
 #if CONFIG_HG_FRAME_STATS
   profile.frame_stats = true;
 #endif
+#if CONFIG_HG_SKIN_EYES
+  profile.skin_eyes = true;
+#endif
   profile.frame_budget_us = CONFIG_HG_FRAME_BUDGET_US;
   profile.frame_log_ms = CONFIG_HG_FRAME_LOG_S * 1000u;
   profile.default_name = CONFIG_HG_DEFAULT_NAME;

@@ -372,7 +372,9 @@ void App::power_tick() {
       wake_display();
     } else if (ringing) {
       if (display_sleeping_ || display_dimmed_) wake_display();
-    } else if (idle && screen_timeout_ms_) {
+    } else if (idle && screen_timeout_ms_ && !(profile_.skin_eyes && clock_enabled() && wall_valid_ && !on_battery_)) {
+      // (The Eyes skin's clock is what a desk gadget on power rests on: there the screen stays lit
+      // for it, dimmed as the clock dims it, and only the power key darkens it.)
       const uint32_t elapsed = now() - activity_at_;
       if (elapsed >= screen_timeout_ms_ && !display_sleeping_) {
         display_sleeping_ = true;

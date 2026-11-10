@@ -90,6 +90,7 @@ void TouchGestures::update(bool touching, int x, int y, uint32_t now_ms) {
     if (app_.wake_display()) { state_ = State::Ignored; return; }
     app_.mark_reply_read();  // what was on screen, before a notice over the reply closes
     app_.close_notices_for_input();  // a low battery alert goes, and the touch acts on what is under it
+    app_.touch_seen(x, y);
     state_ = app_.profile_picker_open() ? State::Picker
               : !from_clock_ && app_.settings_title_hit(x, y) ? State::Settings
               : app_.settings_list_live() ? State::List

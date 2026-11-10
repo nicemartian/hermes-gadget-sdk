@@ -57,6 +57,8 @@ class Eyes {
  public:
   // Whether the skin draws this model. Screens it does not know stay with the stock renderer.
   static bool wants(const UiModel& m);
+  // Whether (x, y) is on the face's one button: a running timer's Cancel.
+  static bool button_hit(const UiModel& m, int x, int y, int w, int h);
   void set_frame_ms(uint32_t ms) { frame_ms_ = ms ? ms : 1; }
   // Draws what changed since the last call into the panel's RGB565 framebuffer (`full`:
   // everything). Returns the rows to send, sorted and merged; empty when nothing changed.
@@ -91,6 +93,13 @@ class Eyes {
   int eq_x_ = 0, eq_y_ = -1;            // the bars beside what is playing (-1: none)
   uint32_t eq_key_ = 0;
   int dot_sec_ = -1, dot_y0_ = 0, dot_y1_ = 0;  // the clock's seconds dot on the ring
+  uint8_t glance_ = 0;                  // the model's glance count at the last frame
+  // the marks that pulse (someone waits): where each dot is, and the step last drawn
+  struct Pulse {
+    int x, y;
+  };
+  std::vector<Pulse> pulses_;
+  uint32_t pulse_key_ = 0;
   // what is on the panel now
   uint32_t face_key_ = 0, ring_key_ = 0, text_key_ = 0;
   Box face_box_, comet_box_;

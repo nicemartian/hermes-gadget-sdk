@@ -1504,7 +1504,23 @@ void App::prompt_tap(int x, int y) {
   update_model();
 }
 
+void App::touch_seen(int x, int y) {
+  if (!profile_.skin_eyes || !hal_.display || model_.screen != Screen::Ready) return;
+  const DisplayInfo info = hal_.display->info();
+  if (info.width <= 0 || info.height <= 0) return;
+  ++glance_;
+  glance_x_ = static_cast<int8_t>(std::clamp((x - info.width / 2) * 200 / info.width, -100, 100));
+  glance_y_ = static_cast<int8_t>(std::clamp((y - info.height / 2) * 200 / info.height, -100, 100));
+  update_model();
+}
+
 void App::view_action() {
+  // The timer face's Cancel.
+  if (timer_running_ && model_.screen == Screen::Ready && !settings_open()) {
+    timer_running_ = timer_due_ = false;
+    update_model();
+    return;
+  }
   // The sessions screen's button opens settings; the offline screen's too, at Wi-Fi setup where this board has it.
   const bool offline = model_.screen == Screen::Offline;
   if (settings_open() || !open_settings()) return;
@@ -2569,6 +2585,9 @@ void App::update_model() {
   m.music_artist.clear();
   m.timer_text.clear();
   m.timer_label.clear();
+  m.glance = glance_;
+  m.glance_x = glance_x_;
+  m.glance_y = glance_y_;
   m.flash = false;
   m.battery = m.face_battery = -1;
   m.battery_charging = m.battery_low = false;
@@ -2953,6 +2972,8 @@ void App::update_model() {
         m.timer_label = timer_label_;
         m.detail.clear();  // the face shows the time left large
       }
+    } else if (m.screen == Screen::Dashboard) {
+      m.attention = waiting;  // the sessions screen says it first
     }
   }
   // Another screen took the answer's place: with the Eyes skin it does not come back when that one closes.

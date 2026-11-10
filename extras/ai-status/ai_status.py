@@ -163,8 +163,20 @@ def claude_tiles(now=None):
         tiles["claude"] = ("Claude", "idle", None)
     # Under the `claude` tile the gadget lists these as plain lines: which sessions it counted.
     rows = [(s, asks(s), "warn") for s in waiting_sessions] + [(s, "working", "ok") for s in busy_sessions]
-    for n, (s, value, state) in enumerate(rows[:SESSION_ROWS], 1):
-        tiles["claude.%d" % n] = (display_name(s, titles), value, state)
+    # Sessions nobody named, in one folder, read alike: they share a line that counts them.
+    lines = []
+    for s, value, state in rows:
+        name = display_name(s, titles)
+        for line in lines:
+            if line[0] == name and line[2] == state:
+                line[3] += 1
+                break
+        else:
+            lines.append([name, value, state, 1])
+    for n, (name, value, state, count) in enumerate(lines[:SESSION_ROWS], 1):
+        if count > 1:
+            name = "%s (%d)" % (name[:NAME_CHARS - 4].rstrip(" -_.,:"), count)
+        tiles["claude.%d" % n] = (name, value, state)
     return tiles
 
 
@@ -228,10 +240,14 @@ def music_tile():
             return None
         script = ('tell application "Spotify" to if player state is playing then '
                   'return (name of current track) & "\n" & (artist of current track)')
-        r = subprocess.run(["osascript", "-e", script], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=8)
-    except (OSError, subprocess.SubprocessError):
+        r = subprocess.run(["osascript", "-e", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+    except (OSError, subprocess.SubprocessError) as exc:
+        sys.stderr.write("ai_status: spotify: %s\n" % exc)
         return None
     if r.returncode != 0:
+        # Most often -1743: macOS has not been told this script may control Spotify.
+        if int(time.time()) % 600 < 20:  # said every ten minutes, not every run
+            sys.stderr.write("ai_status: spotify: %s\n" % r.stderr.decode("utf-8", "replace").strip()[:200])
         return None
     title, _, artist = r.stdout.decode("utf-8", "replace").strip().partition("\n")
     title, artist = " ".join(title.split()), " ".join(artist.split())

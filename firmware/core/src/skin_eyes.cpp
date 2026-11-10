@@ -5,6 +5,7 @@
 #include <cstring>
 #include <string_view>
 
+#include "hg/i18n.hpp"
 #include "hg/ui.hpp"
 #include "skin_draw.hpp"
 
@@ -24,7 +25,9 @@ constexpr uint32_t kCaptionMs = 6000, kCaptionFadeMs = 600, kSleepyMs = 120000, 
 // The face stays above kCompactTop there; on the other faces the marks at the top stay above
 // kChipsBottom, clear of the eyes.
 constexpr int kCompactTop = 176, kChipsTop = 88, kChipsBottom = 116;
-constexpr Rgb kMint{120, 235, 165};
+constexpr Rgb kMint{120, 235, 165}, kPill{38, 34, 46};
+// A running timer's Cancel, under its label.
+constexpr int kCancelY = 362, kCancelW = 128, kCancelH = 46;
 
 // A stand-in for the voice's level while Hermes speaks (the model carries none): 0..1.
 float voice(float t) {
@@ -43,14 +46,16 @@ Target target_for(const UiModel& m, bool sleepy, bool attention, bool compact) {
   if (compact) {
     if (sleepy) return {Rgb{150, 115, 63}, 38, 16, 88, 122};
     if (attention) return {kGold, 40, 58, 92, 116};
-    if (!m.timer_text.empty()) return {kGold, 36, 44, 88, 120};  // watching the digits
+    if (!m.timer_text.empty()) return {kCyan, 36, 44, 88, 120};  // watching the digits
     return {kGold, 36, 52, 88, 118};
   }
   if (sleepy) return {Rgb{150, 115, 63}, 46, 26, 112, 214};  // lids half down, dimmer
   if (attention) return {kGold, 54, 86, 120, 200};          // wide open
   switch (m.screen) {
     case Screen::Listening: return {kCyan, 52, 88, 118, 200};
-    case Screen::Thinking: return {kViolet, 44, 60, 108, 196};
+    case Screen::Thinking:
+      if (!m.detail.empty()) return {kViolet, 48, 36, 108, 198};  // at work with a tool: a squint
+      return {kViolet, 44, 60, 108, 196};
     case Screen::Responding:
       if (m.speaking) return {kGold, 50, 52, 116, 176};
       return {kGold, 46, 66, 112, 200};
@@ -139,6 +144,11 @@ int text_units(std::string_view s) {
     units += g ? (g->adv * 64 + 11) / 12 : 64;
   }
   return units;
+}
+
+bool Eyes::button_hit(const UiModel& m, int x, int y, int w, int h) {
+  if (m.screen != Screen::Ready || m.timer_text.empty()) return false;
+  return std::abs(x - w / 2) <= kCancelW / 2 + 12 && std::abs(y - (h - 466) / 2 - kCancelY) <= kCancelH / 2 + 12;
 }
 
 bool Eyes::wants(const UiModel& m) {
@@ -269,6 +279,14 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     rng_ = rng_ * 1664525u + 1013904223u;
     return (rng_ >> 8) / 16777216.0f;
   };
+  if (m.glance != glance_) {  // a touch: the eyes look that way for a moment
+    if (started_ && move && ready && !compact && seen_before) {
+      gaze_x_ = m.glance_x * 0.2f;
+      gaze_y_ = m.glance_y * 0.09f;
+      next_gaze_ms_ = now_ms + 1100;
+    }
+    glance_ = m.glance;
+  }
   if (move) {
     if (static_cast<int32_t>(now_ms - next_gaze_ms_) >= 0) {
       next_gaze_ms_ = now_ms + 1200 + static_cast<uint32_t>(rnd() * 2200);
@@ -304,6 +322,10 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     else blinking_ = false;
   }
   const Rgb acc{static_cast<uint8_t>(acc_[0] + 0.5f), static_cast<uint8_t>(acc_[1] + 0.5f), static_cast<uint8_t>(acc_[2] + 0.5f)};
+  // What stays on the resting face for hours moves a pixel or two each minute, and the ring a
+  // little in or out: nothing rests on the same pixels.
+  const int drift_min = static_cast<int>(now_ms / 60000);
+  const int drift_x = resting && !compact ? (drift_min * 7) % 5 - 2 : 0, drift_y = resting && !compact ? (drift_min * 5) % 3 - 1 : 0;
   // Music: the eyes nod along, upwards only so they stay clear of what is under them.
   const bool music = resting && !attention && !m.music_title.empty();
   const float bob = music && move && !sleepy ? -1.5f * (1 + std::sin(t * 5.4f)) : 0.0f;
@@ -411,11 +433,15 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     key = mix(mix(mix(mix(key, m.clock_time), m.clock_date), m.timer_text), m.timer_label);
     key = mix(mix(key, m.music_title), m.music_artist);
     for (const UiModel::Chip& chip : m.chips) key = mix(mix(key, chip.label), static_cast<uint32_t>(chip.tone));
+    key = mix(key, static_cast<uint32_t>((drift_x + 8) * 16 + drift_y + 8));
+    const bool battery = resting && m.battery >= 0 && (m.battery_low || (m.battery <= 30 && !m.battery_charging));
+    key = mix(key, battery ? 256u + static_cast<uint32_t>(m.battery) + (m.battery_low ? 128u : 0u) : 0u);
     const bool redraw = repaint || key != text_key_;
     if (redraw) {
       text_key_ = key;
       eq_y_ = -1;
-      const int top = compact ? kCompactTop : kTextTop, bottom = 404;
+      pulses_.clear();
+      const int top = compact ? kCompactTop : kTextTop, bottom = 426;
       clear_inner(top, bottom);
       mark(top, bottom);
       if (!compact) {
@@ -454,11 +480,12 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
           if (total + width > room) break;
           total += width;
         }
-        int x = static_cast<int>(C) - total / 2;
+        int x = static_cast<int>(C) - total / 2 + drift_x;
         for (size_t i = 0; i < n; ++i) {
           const UiModel::Chip& chip = m.chips[i];
           const bool idle = chip.tone == DashRow::Tone::Dim;
-          glow_box(s, x + 5.0f, y + 14.0f, 9, 9, tone_rgb(chip.tone), idle ? 0.55f : 1.0f, idle ? 0 : 5);
+          if (chip.tone == DashRow::Tone::Warn && move) pulses_.push_back({x + 5, y + 14});  // drawn below, pulsing
+          else glow_box(s, x + 5.0f, y + 14.0f, 9, 9, tone_rgb(chip.tone), idle ? 0.55f : 1.0f, idle ? 0 : 5);
           draw_text(s, kText2, x + dot, y, chip.label, idle ? kMuted : kFg, idle ? 0.7f : 0.9f);
           x += dot + text_width(kText2, chip.label) + between;
         }
@@ -476,7 +503,13 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
             centred(kText2, 264 + sy, clock ? soften(m.clock_date) : m.timer_label, kMuted, night ? 0.6f : 0.95f, sx);
             if (music && !night) playing(298, song, kFg, 0.8f);
           }
-          if (!m.chips.empty() && !night) chips(336);
+          if (timing) {  // a button: Cancel
+            glow_box(s, C, kCancelY, kCancelW, kCancelH, kPill, 1.0f, 0);
+            const std::string word(i18n::text(m.lang, i18n::Msg::Cancel));
+            draw_text(s, kText2, static_cast<int>(C) - text_width(kText2, word) / 2, kCancelY - kText2.line / 2, word, kFg, 0.96f);
+          } else if (!m.chips.empty() && !night) {
+            chips(336);
+          }
         }
       } else {
         int y = kTextTop + 2;
@@ -497,15 +530,39 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         }
         // What is playing stays under the name after the name has gone: it is why one looks.
         if (music && m.detail.empty()) {
-          playing(y, m.music_title, kFg, 0.85f);
-          if (!m.music_artist.empty()) centred(kText2, y + kText2.line, m.music_artist, kMuted, 0.9f);
+          playing(y + drift_y, m.music_title, kFg, 0.85f);
+          if (!m.music_artist.empty()) centred(kText2, y + drift_y + kText2.line, m.music_artist, kMuted, 0.9f, drift_x);
         }
         for (const std::string& line : lines) {
           centred(kText2, y, line, speaking || attention ? kFg : kMuted, speaking ? 0.96f : attention ? 0.9f : ca);
           y += kText2.line;
         }
         if (!m.hint.empty() && !speaking && !attention && ca > 0) centred(kText2, 372, m.hint, kMuted, 0.75f * ca);
-        if (resting && settled && !m.chips.empty()) chips(kChipsTop + 1);
+        if (resting && settled && !m.chips.empty()) chips(kChipsTop + 2 + drift_y);
+      }
+      if (battery && (!compact || (settled && !timing))) {
+        // A small battery at the foot of the face, only when it is getting low: red when it is.
+        const Rgb c = m.battery_low ? Rgb{255, 107, 107} : kMuted;
+        const float bx = C + drift_x, by = 413;
+        glow_box(s, bx, by, 26, 13, c, 0.9f, 0);
+        glow_box(s, bx, by, 22, 9, Rgb{0, 0, 0}, 1.0f, 0);
+        for (int yy = static_cast<int>(by) - 5; yy <= static_cast<int>(by) + 4; ++yy) s.clear_run(yy, static_cast<int>(bx) - 11, static_cast<int>(bx) + 11);
+        const float fill = std::max(3.0f, 20.0f * m.battery / 100.0f);
+        glow_box(s, bx - 10 + fill / 2, by, fill, 7, c, 0.9f, 0);
+        glow_box(s, bx + 15, by, 3, 5, c, 0.9f, 0);
+      }
+    }
+    // A mark whose owner waits on the user pulses: its dot alone is redrawn, a few steps a second.
+    if (!pulses_.empty()) {
+      const uint32_t step = static_cast<uint32_t>(t * 8);
+      if (redraw || step != pulse_key_) {
+        pulse_key_ = step;
+        const float a = 0.55f + 0.45f * std::sin(step / 8.0f * 3.0f);
+        for (const Pulse& p : pulses_) {
+          for (int y = p.y - 10; y < p.y + 10; ++y) s.clear_run(y, p.x - 10, p.x + 10);
+          glow_box(s, static_cast<float>(p.x), static_cast<float>(p.y), 9, 9, kGold, a, 5);
+          mark(p.y - 10, p.y + 10);
+        }
       }
     }
     // The bars beside what is playing: a few steps a second, in their own small box.
@@ -543,12 +600,12 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     const float breath = breathe ? 0.5f - 0.5f * std::cos(t * (alarm ? 7.0f : 2.2f)) : 0.0f;
     if (breathe) key = mix(key, static_cast<uint32_t>(breath * 10));
     if (ring == Ring::Arc) key = mix(key, static_cast<uint32_t>(m.timer_permille));
-    key = mix(key, night);
+    key = mix(key, (static_cast<uint32_t>(drift_min % 3) << 1) | night);
     // The still ring over rows [y0, y1): all of it, or the rows the clock's dot has left.
     const float still_half = breathe ? 1.0f + 1.5f * breath : 1.0f;
     const float still_alpha = breathe ? 0.35f + 0.6f * breath : alarm ? 0.9f : night ? 0.16f : 0.3f;
     auto still = [&](int y0, int y1) {
-      const float rr = R - 8.0f, cy = h / 2.0f;
+      const float rr = R - 8.0f - (resting ? drift_min % 3 : 0), cy = h / 2.0f;
       for (int y = std::max(0, y0); y < std::min(h, y1); ++y) {
         const int16_t* b = &band_[static_cast<size_t>(y) * 4];
         for (int run = 0; run < 2; ++run)
@@ -566,7 +623,7 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       ring_ = ring;
       const float cy = h / 2.0f;
       if (ring == Ring::Comet) {
-        const float head = t * 3.2f, rr = R - 12.0f;
+        const float head = t * (m.screen == Screen::Thinking && !m.detail.empty() ? 2.0f : 3.2f), rr = R - 12.0f;
         Box box{w, h, 0, 0};
         auto grow = [&box](float x, float y, float r) {
           box.x0 = std::min(box.x0, static_cast<int>(x - r - 1));
@@ -646,7 +703,7 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       dot_sec_ = sec;
       dot_y0_ = dot_y1_ = 0;
       if (sec >= 0) {
-        const float at = sec * (2 * kPi / 60), rr = R - 8.0f;
+        const float at = sec * (2 * kPi / 60), rr = R - 8.0f - drift_min % 3;
         const float x = C + std::sin(at) * rr, y = h / 2.0f - std::cos(at) * rr;
         disc(s, x, y, 3.5f, kFg, night ? 0.5f : 0.95f, 4);
         dot_y0_ = static_cast<int>(y - 9);

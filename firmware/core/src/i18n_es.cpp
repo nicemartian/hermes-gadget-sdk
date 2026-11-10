@@ -226,6 +226,7 @@ const Entry kSpanish[] = {
     {Msg::AnsweredYes, "Respondiste: sí"},
     {Msg::AnsweredNo, "Respondiste: no"},
     {Msg::TimesUp, "Se acabó el tiempo"},
+    {Msg::Cancel, "Cancelar"},
     {Msg::Yes, "Sí"},
     {Msg::No, "No"},
     {Msg::Back, "Atrás"},

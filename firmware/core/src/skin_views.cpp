@@ -267,7 +267,10 @@ void draw_dash(Surface& s, const UiModel& m) {
   const int max_first = std::max(0, total - kDashRows);
   const int first = std::max(0, std::min(m.scroll, max_first));
   const int shown = std::min(kDashRows, total - first);
-  int y = kDashTop + (kDashRows - shown) * kDashPitch / 2;
+  // Someone waits on the user: said first, above the rows.
+  const bool waits = !m.attention.empty();
+  if (waits) centred(s, kText2, 80, m.attention, kGold);
+  int y = kDashTop + (waits ? 12 : 0) + (kDashRows - shown) * kDashPitch / 2;
   for (int i = 0; i < shown; ++i, y += kDashPitch) {
     const DashRow& row = m.dash[static_cast<size_t>(first + i)];
     const int ty = y + (kDashPitch - kText2.line) / 2, cy = y + kDashPitch / 2;
@@ -332,6 +335,7 @@ uint32_t key(const UiModel& m) {
   k = mix(k, static_cast<uint32_t>(m.screen));
   k = mix(k, static_cast<uint32_t>(m.scroll));
   k = mix(k, static_cast<uint32_t>(m.lang));
+  if (m.screen == Screen::Dashboard) k = mix(k, m.attention);
   if (m.screen == Screen::Dashboard)
     for (const DashRow& row : m.dash) k = mix(mix(mix(k, row.label), row.value), (static_cast<uint32_t>(row.tone) << 2) | (row.sub << 1) | row.heading);
   return mix(k, (m.hero ? 1u : 0u) | (m.yes.empty() ? 0u : 2u) | (m.no.empty() ? 0u : 4u));

@@ -239,6 +239,7 @@ namespace hg::i18n {
   X(AnsweredYes,            "Answered: yes") \
   X(AnsweredNo,             "Answered: no") \
   X(TimesUp,                "Time's up") \
+  X(Cancel,                 "Cancel") \
   X(Yes,                    "Yes") \
   X(No,                     "No") \
   X(Back,                   "Back") \

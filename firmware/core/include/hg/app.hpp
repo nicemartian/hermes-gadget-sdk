@@ -261,6 +261,7 @@ class App {
   // A tap on one of the Eyes skin's own screens: 1 on its way back, 2 on its own button (view_action), else 0.
   int view_hit(int x, int y) const { return ui_ && profile_.skin_eyes ? ui_->view_hit(model_, x, y) : 0; }
   void view_action();
+  void touch_seen(int x, int y);  // a finger came down on the lit screen: the Eyes skin's face glances at it
   std::string agent_profile_name() const;
   // Returns true when this input only wakes a sleeping display.
   bool wake_display();
@@ -838,6 +839,8 @@ class App {
   uint32_t prompt_since_ = 0;
   uint8_t cheer_ = 0;             // the Eyes skin smiles each time this goes up
   bool attention_shown_ = false;  // a status tile was warning at the last model
+  uint8_t glance_ = 0;
+  int8_t glance_x_ = 0, glance_y_ = 0;
   std::vector<UiModel::Chip> chips_;              // the status tiles as the faces' marks
   std::string music_title_, music_artist_;         // the tile "music": label and value
   std::string attention_, attention_detail_;  // the first warning tile: "Claude needs you", and the "<name>.note" tile's value

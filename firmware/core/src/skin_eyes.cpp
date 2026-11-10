@@ -483,10 +483,13 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
   {
     uint32_t key = mix(mix(mix(23, m.headline), m.detail), m.hint);
     key = mix(mix(key, static_cast<uint32_t>(m.screen)), (uint32_t(m.caption_lines) << 1) | speaking);
+    // While the reply is spoken the face is alone on the glass: the words come after, on the answer view.
+    if (speaking) key = 0x5EA4;
     if (first || key != text_key_) {
       text_key_ = key;
       const int top = kTextTop, bottom = 404;
       clear_inner(top, bottom);
+      if (speaking) mark(top, bottom);
       auto chord = [&](int y0, int y1) {  // the width free of the ring over rows [y0, y1)
         int width = w;
         for (int y : {y0, y1 - 1}) {
@@ -501,11 +504,10 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         draw_text(s, f, static_cast<int>(C) - text_width(f, line) / 2, y, line, c, a);
       };
       int y = kTextTop + 2;
-      centred(kText3, y, m.headline, kFg, 0.96f);
+      if (!speaking) centred(kText3, y, m.headline, kFg, 0.96f);
       y += kText3.line + 1;
       const int max_lines = std::max<int>(1, std::min<int>(m.caption_lines, 2));
-      std::string detail = m.detail;
-      if (speaking) std::replace(detail.begin(), detail.end(), '\n', ' ');
+      std::string detail = speaking ? std::string() : m.detail;
       if (detail == m.headline) detail.clear();  // a status that only repeats the headline
       std::vector<std::string> lines = wrap(kText2, detail, chord(y, y + max_lines * kText2.line));
       if (static_cast<int>(lines.size()) > max_lines) {
@@ -520,8 +522,8 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         centred(kText2, y, line, speaking ? kFg : kMuted, speaking ? 0.96f : 1.0f);
         y += kText2.line;
       }
-      if (!m.hint.empty()) centred(kText2, 372, m.hint, kMuted, 0.75f);
-      mark(top, bottom);
+      if (!m.hint.empty() && !speaking) centred(kText2, 372, m.hint, kMuted, 0.75f);
+      if (!speaking) mark(top, bottom);
     }
   }
 

@@ -34,6 +34,9 @@ struct Target {
 };
 
 Target target_for(const UiModel& m, bool sleepy, bool attention) {
+  if (m.screen == Screen::Ready && m.meeting && !attention) {  // in a meeting: rose, and it stays awake
+    return {kRose, 46, 74, 112, 205};
+  }
   if (sleepy) return {Rgb{150, 115, 63}, 46, 26, 112, 214};  // lids half down, dimmer
   if (attention) return {kGold, 54, 86, 120, 200};          // wide open
   switch (m.screen) {
@@ -181,7 +184,7 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
   const bool ready = m.screen == Screen::Ready;
   const bool attention = ready && !m.attention.empty();
   {
-    uint32_t ck = mix(mix(mix(mix(43, m.headline), m.detail), m.hint), m.attention);
+    uint32_t ck = mix(mix(mix(mix(mix(43, m.headline), m.detail), m.hint), m.attention), m.attention_detail);
     ck = mix(ck, static_cast<uint32_t>(m.screen));
     if (first || ck != calm_key_) {
       calm_key_ = ck;
@@ -337,7 +340,7 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     key = mix(mix(key, static_cast<uint32_t>(m.screen)), (uint32_t(m.caption_lines) << 1) | speaking);
     // While the reply is spoken the face is alone on the glass: the words come after, on the answer view.
     key = mix(key, static_cast<uint32_t>(std::ceil(caption_alpha * 12)));
-    key = mix(key, m.attention);
+    key = mix(mix(key, m.attention), m.attention_detail);
     if (speaking) key = 0x5EA4;
     if (first || key != text_key_) {
       text_key_ = key;
@@ -361,8 +364,8 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       const float ca = caption_alpha;
       if (!speaking && ca > 0) centred(kText3, y, attention ? m.attention : m.headline, attention ? kGold : kFg, 0.96f * ca);
       y += kText3.line + 1;
-      const int max_lines = std::max<int>(1, std::min<int>(m.caption_lines, 2));
-      std::string detail = speaking || attention || ca <= 0 ? std::string() : m.detail;
+      const int max_lines = attention ? 2 : std::max<int>(1, std::min<int>(m.caption_lines, 2));
+      std::string detail = speaking || ca <= 0 ? std::string() : attention ? m.attention_detail : m.detail;
       if (detail == m.headline) detail.clear();  // a status that only repeats the headline
       std::vector<std::string> lines = wrap(kText2, detail, chord(y, y + max_lines * kText2.line));
       if (static_cast<int>(lines.size()) > max_lines) {
@@ -374,7 +377,7 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         }
       }
       for (const std::string& line : lines) {
-        centred(kText2, y, line, speaking ? kFg : kMuted, speaking ? 0.96f : ca);
+        centred(kText2, y, line, speaking || attention ? kFg : kMuted, speaking ? 0.96f : attention ? 0.9f : ca);
         y += kText2.line;
       }
       if (!m.hint.empty() && !speaking && !attention && ca > 0) centred(kText2, 372, m.hint, kMuted, 0.75f * ca);
@@ -395,6 +398,12 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     if (ring == Ring::Pulse) key = mix(key, static_cast<uint32_t>(level_ * 200));
     if (ring == Ring::Comet || ring == Ring::Ticks) key = mix(key, m.fine);
     // Something waits on the user: the still ring breathes, a few steps a second.
+    // The day ring: the meetings to come on a twelve hour dial, and where now is on it.
+    const bool day = ring == Ring::Still && ready && m.day_now >= 0;
+    if (day) {
+      key = mix(key, static_cast<uint32_t>(m.day_now));
+      for (const auto& arc : m.day_arcs) key = mix(key, (uint32_t(arc.first) << 12) | arc.second);
+    }
     const bool breathe = attention && ring == Ring::Still;
     const float breath = breathe ? 0.5f - 0.5f * std::cos(t * 2.2f) : 0.0f;
     if (breathe) key = mix(key, static_cast<uint32_t>(breath * 10));
@@ -432,10 +441,28 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
             const int16_t* b = &band_[static_cast<size_t>(y) * 4];
             for (int run = 0; run < 2; ++run)
               for (int x = b[run * 2]; x < b[run * 2 + 1]; ++x) {
-                const float d = std::fabs(std::hypot(x + 0.5f - C, y + 0.5f - cy) - rr) - half;
-                const float a = clamp01(0.5f - d);
-                if (a > 0) s.add(x, y, acc, static_cast<int>(a * alpha * 255));
+                const float px = x + 0.5f - C, py = y + 0.5f - cy;
+                const float dist = std::hypot(px, py);
+                const float d = std::fabs(dist - rr) - half;
+                float a = clamp01(0.5f - d) * alpha;
+                if (day && std::fabs(dist - rr) < 5.0f) {
+                  // This pixel's place on the dial, in minutes clockwise from 12.
+                  float minute = std::atan2(px, -py) * (360.0f / kPi);
+                  if (minute < 0) minute += 720;
+                  for (const auto& arc : m.day_arcs) {
+                    const float from = static_cast<float>(std::max<int>(arc.first, m.day_now) % 720);
+                    const float span = static_cast<float>(arc.second - std::max<int>(arc.first, m.day_now));
+                    float off = minute - from;
+                    if (off < 0) off += 720;
+                    if (off <= span) a = std::max(a, clamp01(0.5f - (std::fabs(dist - rr) - 3.0f)) * 0.95f);
+                  }
+                }
+                if (a > 0) s.add(x, y, acc, static_cast<int>(a * 255));
               }
+          }
+          if (day) {  // now: a white dot on the dial
+            const float at = (m.day_now % 720) * (kPi / 360.0f);
+            disc(s, C + std::sin(at) * rr, cy - std::cos(at) * rr, 5.0f, kWhite, 0.95f, 6);
           }
         } else if (ring == Ring::Pulse) {
           const float rr = R - 14.0f, half = (4 + 8 * level_) / 2, glow = 8 + 12 * level_, alpha = 0.6f + 0.4f * level_;

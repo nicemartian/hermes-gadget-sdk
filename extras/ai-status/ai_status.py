@@ -40,9 +40,41 @@ def alive(pid):
         return False
 
 
-def claude_tile():
-    """(value, state): what the running Claude Code sessions are doing."""
+WAITING_FOR = {"dialog open": "dialog", "input needed": "question", "sandbox request": "permission",
+               "goal proposal": "proposal"}
+APPS = {"cli": "Terminal", "claude-desktop": "Claude app"}
+NOTE_CHARS = 26
+
+
+def where(session, now):
+    """A waiting session in a few words: what it waits on, the app, the folder and for how long."""
+    what = WAITING_FOR.get(str(session.get("waitingFor") or "").lower(), "waiting")
+    app = APPS.get(str(session.get("entrypoint") or ""), "")
+    cwd = os.path.normpath(str(session.get("cwd") or ""))
+    folder = "home" if cwd == os.path.normpath(HOME) else os.path.basename(cwd)
+    try:
+        minutes = int((now * 1000 - float(session.get("statusUpdatedAt") or 0)) / 60000)
+    except (TypeError, ValueError):
+        minutes = 0
+    age = "%dm" % minutes if 2 <= minutes < 600 else ""
+    # The gadget's line holds about 26 characters: the app goes first when it is too long, then the folder is cut.
+    for parts in ([what, app, folder, age], [what, folder, age]):
+        text = ", ".join(p for p in parts if p)
+        if len(text) <= NOTE_CHARS:
+            return text
+    room = NOTE_CHARS - len(", ".join(p for p in (what, age) if p)) - 2
+    return ", ".join(p for p in (what, folder[:max(4, room)], age) if p)[:NOTE_CHARS]
+
+
+def claude_tile(now=None):
+    """(value, state, note): what the running Claude Code sessions are doing.
+
+    `note` says which waiting session and what for; the gadget's resting face shows it under
+    "Claude needs you" (the tile `claude.note`, which the gadget does not list).
+    """
+    now = time.time() if now is None else now
     counts = {}
+    waiting_sessions = []
     for path in glob.glob(os.path.join(HOME, ".claude", "sessions", "*.json")):
         try:
             with open(path, encoding="utf-8") as f:
@@ -53,15 +85,20 @@ def claude_tile():
             continue  # a file left by a session that has gone
         status = str(s.get("status") or "idle").lower()
         counts[status] = counts.get(status, 0) + 1
+        if any(w in status for w in ("wait", "permission", "approval", "input")):
+            waiting_sessions.append(s)
     if not counts:
-        return "off", None
-    waiting = sum(n for k, n in counts.items() if any(w in k for w in ("wait", "permission", "approval", "input")))
+        return "off", None, ""
+    waiting = len(waiting_sessions)
     busy = sum(n for k, n in counts.items() if k in ("busy", "working", "running"))
     if waiting:
-        return ("needs you" if waiting == 1 else "%d need you" % waiting), "warn"
+        # The longest wait first: that is the one to go to.
+        waiting_sessions.sort(key=lambda s: s.get("statusUpdatedAt") or 0)
+        head = "needs you" if waiting == 1 else "%d need you" % waiting
+        return head, "warn", where(waiting_sessions[0], now)
     if busy:
-        return ("working" if busy == 1 else "%d working" % busy), "ok"
-    return "idle", None
+        return ("working" if busy == 1 else "%d working" % busy), "ok", ""
+    return "idle", None, ""
 
 
 def last_task_event(path):
@@ -125,13 +162,16 @@ def main():
     args = ap.parse_args()
 
     now = time.time()
+    value, state, note = claude_tile(now)
     tiles = {
-        "claude": ("Claude",) + claude_tile(),
+        "claude": ("Claude", value, state),
         "codex": ("ChatGPT Codex",) + codex_tile(now),
     }
+    if note:
+        tiles["claude.note"] = ("Claude", note, None)
     if args.dry_run:
         for name, (label, value, state) in tiles.items():
-            print("%-7s %-14s %-12s %s" % (name, label, value, state or "-"))
+            print("%-11s %-14s %-26s %s" % (name, label, value, state or "-"))
         return 0
 
     try:

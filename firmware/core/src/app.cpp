@@ -1348,11 +1348,52 @@ void App::h_dashboard(const json::Value& m) {
   }
   if (rows.size() == 1) rows.push_back({tr(i18n::Msg::NoSessions), "", DashRow::Tone::Dim, false});
   const json::Value& tiles = m["tiles"];
-  if (tiles.size()) rows.push_back({tr(i18n::Msg::DashStatus), "", DashRow::Tone::Dim, true});
+  std::vector<Meeting> meetings;
+  auto meeting = [](const json::Value& t, Meeting& out) {  // a "cal..." tile: "HHMM-HHMM"
+    const std::string& id = t["id"].as_string();
+    const std::string& v = t["value"].as_string();
+    if (id.compare(0, 3, "cal") != 0 || v.size() != 9 || v[4] != '-') return false;
+    int n[2] = {0, 0};
+    for (int part = 0; part < 2; ++part) {
+      for (int k = 0; k < 4; ++k) {
+        const char c = v[static_cast<size_t>(part * 5 + k)];
+        if (c < '0' || c > '9') return false;
+      }
+      const int hh = (v[part * 5] - '0') * 10 + (v[part * 5 + 1] - '0'), mm = (v[part * 5 + 2] - '0') * 10 + (v[part * 5 + 3] - '0');
+      if (hh > 24 || mm > 59) return false;
+      n[part] = hh * 60 + mm;
+    }
+    if (n[1] <= n[0]) return false;
+    out = {static_cast<uint16_t>(n[0]), static_cast<uint16_t>(std::min(n[1], 1440)), t["label"].as_string()};
+    return true;
+  };
+  bool status_heading = false;
+  std::string attention, attention_more;
   for (size_t i = 0; i < tiles.size() && i < kDashMaxEach; ++i) {
     const json::Value& t = tiles[i];
-    rows.push_back({t["label"].as_string(), t["value"].as_string(), tone(t["state"].str_or("")), false});
+    Meeting found;
+    if (profile_.skin_eyes && meeting(t, found)) {
+      meetings.push_back(std::move(found));
+      continue;
+    }
+    // A tile "<name>.note" is not listed: its value is the second line under a warning on the
+    // resting face ("Claude needs you" / "dialog, Terminal, my-project").
+    const std::string value = t["value"].as_string();
+    if (const std::string& id = t["id"].as_string(); profile_.skin_eyes && id.size() > 5 && id.compare(id.size() - 5, 5, ".note") == 0) {
+      if (attention_more.empty()) attention_more = value;
+      continue;
+    }
+    if (!status_heading) rows.push_back({tr(i18n::Msg::DashStatus), "", DashRow::Tone::Dim, true});
+    status_heading = true;
+    const DashRow::Tone tn = tone(t["state"].str_or(""));
+    if (tn == DashRow::Tone::Warn && attention.empty()) {
+      attention = value.empty() ? t["label"].as_string() : t["label"].as_string() + " " + value;
+    }
+    rows.push_back({t["label"].as_string(), value, tn, false});
   }
+  meetings_ = std::move(meetings);
+  attention_ = std::move(attention);
+  attention_detail_ = std::move(attention_more);
   dash_rows_ = std::move(rows);
   dash_headline_ = waiting ? tr(i18n::Msg::NWaiting, {std::to_string(waiting)})
                    : busy  ? tr(i18n::Msg::NBusy, {std::to_string(busy)})
@@ -2520,7 +2561,11 @@ void App::update_model() {
   m.animate = animation_;
   m.progress_permille = -1;
   m.attention.clear();
+  m.attention_detail.clear();
   m.cheer = cheer_;
+  m.day_now = -1;
+  m.day_arcs.clear();
+  m.meeting = false;
   m.flash = false;
   m.battery = m.face_battery = -1;
   m.battery_charging = m.battery_low = false;
@@ -2889,12 +2934,37 @@ void App::update_model() {
   if (!hint_flash_.empty()) m.hint = hint_flash_;
   if (profile_.skin_eyes) {
     // A status tile that warns ("Claude: needs you") shows on the resting face; when it clears, the eyes smile.
-    std::string waiting;
-    for (const DashRow& row : dash_rows_)
-      if (!row.heading && row.tone == DashRow::Tone::Warn && waiting.empty()) waiting = row.value.empty() ? row.label : row.label + " " + row.value;
+    const std::string& waiting = attention_;
     if (waiting.empty() && attention_shown_) m.cheer = ++cheer_;
     attention_shown_ = !waiting.empty();
-    if (m.screen == Screen::Ready && m.hero) m.attention = waiting;
+    if (m.screen == Screen::Ready && m.hero) {
+      m.attention = waiting;
+      m.attention_detail = attention_detail_;
+    }
+    if (m.screen == Screen::Ready && m.hero && wall_valid_ && !meetings_.empty()) {
+      // The day ring: the meetings still to come in the next twelve hours, and the one on now.
+      const int now_min = wall_.hour * 60 + wall_.minute;
+      const Meeting* on = nullptr;
+      const Meeting* next = nullptr;
+      for (const Meeting& mt : meetings_) {
+        if (mt.end <= now_min || mt.start >= now_min + 720) continue;
+        m.day_arcs.push_back({mt.start, mt.end});
+        if (mt.start <= now_min) on = on ? on : &mt;
+        else if (!next || mt.start < next->start) next = &mt;
+      }
+      if (!m.day_arcs.empty()) m.day_now = static_cast<int16_t>(now_min);
+      m.meeting = on != nullptr;
+      auto clock = [](int minutes) {
+        char buf[8];
+        std::snprintf(buf, sizeof buf, "%d:%02d", minutes / 60 % 24, minutes % 60);
+        return std::string(buf);
+      };
+      // One line under the name while the face still says anything; a running timer or a notice keeps its own.
+      if (m.detail.empty() && m.attention.empty()) {
+        if (on) m.detail = tr(i18n::Msg::MeetingUntil, {on->title, clock(on->end)});
+        else if (next && next->start - now_min <= 60) m.detail = tr(i18n::Msg::MeetingNext, {next->title, std::to_string(next->start - now_min)});
+      }
+    }
   }
   // Another screen took the answer's place: with the Eyes skin it does not come back when that one closes.
   if (profile_.skin_eyes && mode_ == Mode::Idle && !display_sleeping_ &&

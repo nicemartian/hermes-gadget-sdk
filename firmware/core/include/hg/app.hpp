@@ -837,7 +837,15 @@ class App {
   std::string prompt_id_, prompt_title_, prompt_text_;
   uint32_t prompt_since_ = 0;
   uint8_t cheer_ = 0;             // the Eyes skin smiles each time this goes up
+  // Today's meetings, from status tiles whose id starts with "cal" (value "HHMM-HHMM", label the
+  // title): the Eyes skin's day ring and meeting light. They are not listed with the other tiles.
+  struct Meeting {
+    uint16_t start = 0, end = 0;  // minutes from midnight
+    std::string title;
+  };
+  std::vector<Meeting> meetings_;
   bool attention_shown_ = false;  // a status tile was warning at the last model
+  std::string attention_, attention_detail_;  // the first warning tile: "Claude needs you", and the "<name>.note" tile's value
   uint32_t prompt_until_ = 0;  // 0 = until answered or withdrawn
 
   // transient messages

@@ -355,6 +355,151 @@ void draw_music(Surface& s, const UiModel& m) {
   if (!m.music_length.empty()) centred(s, kText2, 386, m.music_at + " / " + m.music_length, kMuted, 0.8f);
 }
 
+// --- settings ---
+
+// The list uses the whole glass: a row is as wide as the glass is at its height, rows fade into
+// the edge at the top and bottom, and the selected row opens in place for its slider and text.
+// List coordinates start at kSetTop and scroll by UiModel::settings_scroll.
+constexpr int kSetTop = 84, kSetBottom = 418;  // the rows of the glass the list shows through
+constexpr int kSetPad = 22, kSetEnd = 46;      // above the first row and below the last: clear of the fades
+constexpr int kSetPitch = 48, kSetRow = 46;
+constexpr int kSetSlider = 36, kSetText = 244, kSetValue = 150;
+constexpr Rgb kTrack{58, 54, 62};
+
+bool set_has(const UiModel& m, int i) { return i >= 0 && i < static_cast<int>(m.settings.size()); }
+
+// The selected row's text: the item's body, less the first line where the row already shows it.
+std::vector<std::string> set_desc(const UiModel& m) {
+  if (!set_has(m, m.settings_sel)) return {};
+  const SettingRow& row = m.settings[static_cast<size_t>(m.settings_sel)];
+  std::string_view body = m.body;
+  const size_t nl = body.find('\n');
+  const bool shown = !row.value.empty() && text_width(kText2, row.value) <= kSetValue && body.substr(0, nl) == row.value;
+  if (row.kind == SettingRow::Kind::Slider || shown) body = nl == std::string_view::npos ? std::string_view() : body.substr(nl + 1);
+  return wrap(kText2, body, kSetText);
+}
+
+int set_extra(const UiModel& m) {
+  if (!set_has(m, m.settings_sel)) return 0;
+  const bool slider = m.settings[static_cast<size_t>(m.settings_sel)].kind == SettingRow::Kind::Slider;
+  const int lines = static_cast<int>(set_desc(m).size());
+  return (slider ? kSetSlider : 0) + lines * kText2.line + (slider || lines ? 10 : 0);
+}
+
+// The columns a row's text keeps to over panel rows [y0, y1).
+struct Span {
+  int l, r;
+};
+Span set_span(int y0, int y1) {
+  const float dy = std::max(std::fabs(y0 + 0.5f - kC), std::fabs(y1 - 0.5f - kC));
+  const float reach = kC - 18.0f, c2 = reach * reach - dy * dy;
+  const int half = c2 > 0 ? static_cast<int>(std::sqrt(c2)) : 0;
+  return {std::max(62, kC - half + 30), std::min(kSize - 62, kC + half - 30)};
+}
+
+int set_scroll(const UiModel& m) { return std::max(0, std::min(m.settings_scroll, set_max_scroll(m))); }
+
+// The open slider's bar: its ends and its centre line, in panel coordinates.
+struct Bar {
+  int x0 = 0, x1 = 0, y = 0;
+};
+Bar set_bar(const UiModel& m) {
+  if (!set_has(m, m.settings_sel) || m.settings[static_cast<size_t>(m.settings_sel)].kind != SettingRow::Kind::Slider) return {};
+  const int top = kSetTop + set_row_top(m, m.settings_sel) - set_scroll(m);
+  const Span sp = set_span(top + 4, top + set_row_h(m, m.settings_sel) - 4);
+  return {sp.l + 8, sp.r - 8, top + kSetRow + 12};
+}
+
+void round_box(Surface& s, int x, int y, int w, int h, int r, Rgb c) {
+  for (int yy = std::max(0, y); yy < std::min(s.h, y + h); ++yy) {
+    const float py = yy + 0.5f, qy = std::max({y + r - py, py - (y + h - r), 0.0f});
+    for (int xx = x; xx < x + w; ++xx) {
+      const float px = xx + 0.5f, qx = std::max({x + r - px, px - (x + w - r), 0.0f});
+      const float a = qx > 0 && qy > 0 ? clamp01(0.5f - (std::sqrt(qx * qx + qy * qy) - r)) : 1.0f;
+      if (a > 0) s.add(xx, yy, c, static_cast<int>(a * 255));
+    }
+  }
+}
+
+// Rows [y0, y1) fade to black toward y0 (`rising`) or toward y1.
+void fade_rows(Surface& s, int y0, int y1, bool rising) {
+  for (int y = std::max(0, y0); y < std::min(s.h, y1); ++y) {
+    const int a = (rising ? y - y0 : y1 - 1 - y) * 256 / (y1 - y0);
+    for (int x = 0; x < kSize; ++x) {
+      const int i = y * s.w + x;
+      const uint16_t v = s.get(i);
+      if (!v) continue;
+      s.put(i, static_cast<uint16_t>((((v >> 11) * a >> 8) << 11) | ((((v >> 5) & 63) * a >> 8) << 5) | ((v & 31) * a >> 8)));
+    }
+  }
+}
+
+void draw_settings(Surface& s, const UiModel& m) {
+  const int scroll = set_scroll(m), n = static_cast<int>(m.settings.size());
+  const std::vector<std::string> desc = set_desc(m);
+  for (int i = 0; i < n; ++i) {
+    const int top = kSetTop + set_row_top(m, i) - scroll, h = set_row_h(m, i);
+    if (top >= kSetBottom) break;
+    if (top + h <= kSetTop) continue;
+    const SettingRow& row = m.settings[static_cast<size_t>(i)];
+    const bool sel = i == m.settings_sel;
+    const int cy = top + kSetRow / 2, ty = cy - kText2.mid;
+    const Span sp = sel ? set_span(top + 4, top + h - 4) : set_span(cy, cy + 1);
+    if (sp.r - sp.l < 80) continue;  // at the very edge of the glass: under the fade anyway
+    if (sel) round_box(s, sp.l - 16, top, sp.r - sp.l + 32, h, 18, kPill);
+    int right = sp.r;  // where the label must stop
+    switch (row.kind) {
+      case SettingRow::Kind::Toggle: {
+        const bool on = row.level != 0;
+        glow_box(s, sp.r - 22.0f, static_cast<float>(cy), 44, 24, on ? kPlay : kTrack, on ? 0.9f : 1.0f, 0);
+        disc(s, sp.r - 22.0f + (on ? 10 : -10), static_cast<float>(cy), 9, kWhite, on ? 1.0f : 0.75f);
+        right = sp.r - 44;
+        break;
+      }
+      case SettingRow::Kind::Action:
+        capsule_line(s, sp.r - 8.0f, cy - 6.0f, sp.r - 2.0f, static_cast<float>(cy), 2.2f, kMuted, sel ? 1.0f : 0.7f);
+        capsule_line(s, sp.r - 2.0f, static_cast<float>(cy), sp.r - 8.0f, cy + 6.0f, 2.2f, kMuted, sel ? 1.0f : 0.7f);
+        right = sp.r - 10;
+        break;
+      default: {  // a value, or a slider's percentage
+        const std::string v = fit(kText2, row.value, std::min(kSetValue, (sp.r - sp.l) / 2));
+        const int vw = text_width(kText2, v);
+        draw_text(s, kText2, sp.r - vw, ty, v, sel ? kGold : kMuted, 1.0f);
+        right = sp.r - vw;
+        break;
+      }
+    }
+    draw_text(s, kText2, sp.l, ty, fit(kText2, row.label, right - 12 - sp.l), kFg, 0.96f);
+    if (!sel) continue;
+    int y = top + kSetRow;
+    if (row.kind == SettingRow::Kind::Slider) {
+      const Bar bar = set_bar(m);
+      const int w = bar.x1 - bar.x0, fill = w * std::min<int>(100, row.level) / 100;
+      glow_box(s, bar.x0 + w / 2.0f, static_cast<float>(bar.y), static_cast<float>(w), 5, kTrack, 1.0f, 0);
+      if (fill > 2) glow_box(s, bar.x0 + fill / 2.0f, static_cast<float>(bar.y), static_cast<float>(fill), 5, kGold, 1.0f, 0);
+      disc(s, static_cast<float>(bar.x0 + fill), static_cast<float>(bar.y), 10, kWhite, 1.0f);
+      y += kSetSlider;
+    }
+    for (const std::string& line : desc) {
+      draw_text(s, kText2, sp.l, y, line, kMuted, 1.0f);
+      y += kText2.line;
+    }
+  }
+  // The list meets the glass softly, and the way back sits over where it has gone.
+  for (int y = 0; y < kSetTop; ++y) s.clear_run(y, 0, kSize);
+  for (int y = kSetBottom; y < kSize; ++y) s.clear_run(y, 0, kSize);
+  fade_rows(s, kSetTop, kSetTop + 22, true);
+  fade_rows(s, kSetBottom - 36, kSetBottom, false);
+  back_pill(s, m);
+  const int max_scroll = set_max_scroll(m);
+  if (max_scroll > 0) {  // where the list is, at the right edge
+    const float track = 90, view = static_cast<float>(set_view_h()), thumb = std::max(18.0f, track * view / (view + max_scroll));
+    const float x = kSize - 27.5f, at = static_cast<float>(scroll) / max_scroll;
+    glow_box(s, x, kC, 3, track, kTrack, 1.0f, 0);
+    glow_box(s, x, kC - track / 2 + thumb / 2 + (track - thumb) * at, 3, thumb, kMuted, 1.0f, 0);
+  }
+}
+
 void draw_offline(Surface& s, const UiModel& m) {
   for (int side : {-1, 1}) glow_box(s, kC + side * 56.0f, 168, 44, 10, kRest, 0.85f, 16);  // resting, not broken
   centred(s, kText3, 216, m.headline, kFg);
@@ -381,6 +526,7 @@ bool wants(const UiModel& m) {
     case Screen::Card: return true;
     case Screen::Offline: return m.hero;
     case Screen::Dashboard: return true;
+    case Screen::Settings: return !m.settings.empty();
     default: return false;
   }
 }
@@ -397,6 +543,10 @@ uint32_t key(const UiModel& m) {
   }
   if (m.screen == Screen::Dashboard)
     for (const DashRow& row : m.dash) k = mix(mix(mix(k, row.label), row.value), (static_cast<uint32_t>(row.tone) << 2) | (row.sub << 1) | row.heading);
+  if (m.screen == Screen::Settings) {
+    k = mix(mix(k, static_cast<uint32_t>(m.settings_sel)), static_cast<uint32_t>(m.settings_scroll));
+    for (const SettingRow& row : m.settings) k = mix(mix(mix(k, row.label), row.value), (static_cast<uint32_t>(row.kind) << 8) | row.level);
+  }
   return mix(k, (m.hero ? 1u : 0u) | (m.yes.empty() ? 0u : 2u) | (m.no.empty() ? 0u : 4u));
 }
 
@@ -414,6 +564,7 @@ void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap) {
     case Screen::Card: draw_card(s, m); break;
     case Screen::Offline: draw_offline(s, m); break;
     case Screen::Dashboard: draw_dash(s, m); break;
+    case Screen::Settings: draw_settings(s, m); break;
     default: break;
   }
 }
@@ -445,5 +596,53 @@ bool ask_whole(const UiModel& m) { return ask_layout(m).whole; }
 int card_cols() { return kCardWidth / 12; }  // the body font's columns are 12 px (text_units)
 int card_rows() { return (kCardBottom - kCardTop) / kCardPitch; }
 int dash_rows() { return kDashRows; }
+
+int set_view_h() { return kSetBottom - kSetTop; }
+
+int set_row_h(const UiModel& m, int i) { return kSetRow + (i == m.settings_sel ? set_extra(m) : 0); }
+
+int set_row_top(const UiModel& m, int i) {
+  return kSetPad + i * kSetPitch + (m.settings_sel >= 0 && i > m.settings_sel ? set_extra(m) : 0);
+}
+
+int set_max_scroll(const UiModel& m) {
+  const int n = static_cast<int>(m.settings.size());
+  return n ? std::max(0, set_row_top(m, n - 1) + set_row_h(m, n - 1) + kSetEnd - set_view_h()) : 0;
+}
+
+// The least the list moves for the selected row to be whole and where the glass is wide.
+int set_scroll_for(const UiModel& m, int scroll) {
+  if (!set_has(m, m.settings_sel)) return 0;
+  const int top = set_row_top(m, m.settings_sel) - kSetPad;
+  const int bottom = set_row_top(m, m.settings_sel) + set_row_h(m, m.settings_sel) + kSetEnd;
+  if (bottom - scroll > set_view_h()) scroll = bottom - set_view_h();
+  if (top < scroll) scroll = top;
+  return std::max(0, std::min(scroll, set_max_scroll(m)));
+}
+
+int set_row_hit(const UiModel& m, int x, int y, int w, int h) {
+  x -= (w - kSize) / 2;
+  y -= (h - kSize) / 2;
+  if (m.screen != Screen::Settings || x < 0 || x >= kSize || y < kSetTop || y >= kSetBottom) return -1;
+  y += set_scroll(m) - kSetTop;
+  for (int i = 0; i < static_cast<int>(m.settings.size()); ++i) {
+    const int top = set_row_top(m, i);
+    if (y >= top && y < top + set_row_h(m, i)) return i;
+  }
+  return -1;
+}
+
+int set_slider_at(const UiModel& m, int x, int y, int w, int h, bool anywhere) {
+  if (m.screen != Screen::Settings) return -1;
+  const Bar bar = set_bar(m);
+  if (bar.x1 <= bar.x0) return -1;
+  x -= (w - kSize) / 2;
+  y -= (h - kSize) / 2;
+  // A fingertip around the bar, while it is on the glass; once a slide has begun, any height.
+  const int reach = 24;
+  if (!anywhere && (bar.y < kSetTop || bar.y >= kSetBottom || std::abs(y - bar.y) > reach || x < bar.x0 - reach || x >= bar.x1 + reach))
+    return -1;
+  return std::max(0, std::min(100, (x - bar.x0) * 100 / (bar.x1 - bar.x0)));
+}
 
 }  // namespace hg::skin::view

@@ -128,6 +128,15 @@ bool ask_whole(const UiModel& m);
 int card_cols();
 int card_rows();
 int dash_rows();  // the sessions screen's rows
+// The settings list, which the skin lays out over the whole glass: what Ui's settings geometry
+// answers with while the skin is on. Rows are in list coordinates, points in panel coordinates.
+int set_view_h();
+int set_row_top(const UiModel& m, int i);
+int set_row_h(const UiModel& m, int i);
+int set_max_scroll(const UiModel& m);
+int set_scroll_for(const UiModel& m, int scroll);
+int set_row_hit(const UiModel& m, int x, int y, int w, int h);
+int set_slider_at(const UiModel& m, int x, int y, int w, int h, bool anywhere);
 }  // namespace view
 
 }  // namespace skin

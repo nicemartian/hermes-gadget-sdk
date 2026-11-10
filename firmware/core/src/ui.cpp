@@ -1481,9 +1481,13 @@ std::vector<std::string> Ui::settings_desc(const UiModel& m) const {
   return wrap_text(std::string(body), cols_for(info_.width - 22 * s, s));  // the text column, beside a scroll bar
 }
 
-int Ui::settings_view_h() const { return info_.height - layout_.bottom_h - layout_.top_h - layout_.header_h; }
+int Ui::settings_view_h() const {
+  if (skin_on_) return skin::view::set_view_h();
+  return info_.height - layout_.bottom_h - layout_.top_h - layout_.header_h;
+}
 
 int Ui::settings_row_h(const UiModel& m, int i) const {
+  if (skin_on_) return skin::view::set_row_h(m, i);
   const int s = layout_.scale, base = settings_row_base(s, touch_px_);
   if (i != m.settings_sel) return base;
   const int lines = static_cast<int>(settings_desc(m).size()) +
@@ -1492,6 +1496,7 @@ int Ui::settings_row_h(const UiModel& m, int i) const {
 }
 
 int Ui::settings_row_top(const UiModel& m, int i) const {
+  if (skin_on_) return skin::view::set_row_top(m, i);
   const int s = layout_.scale, base = settings_row_base(s, touch_px_);
   // Rows above the selected one are all the base height.
   int top = 2 * s + i * (base + s);
@@ -1500,12 +1505,14 @@ int Ui::settings_row_top(const UiModel& m, int i) const {
 }
 
 int Ui::settings_max_scroll(const UiModel& m) const {
+  if (skin_on_) return skin::view::set_max_scroll(m);
   const int n = static_cast<int>(m.settings.size());
   if (n == 0) return 0;
   return std::max(0, settings_row_top(m, n - 1) + settings_row_h(m, n - 1) + 2 * layout_.scale - settings_view_h());
 }
 
 int Ui::settings_scroll_for(const UiModel& m, int scroll) const {
+  if (skin_on_) return skin::view::set_scroll_for(m, scroll);
   if (m.settings_sel < 0 || m.settings_sel >= static_cast<int>(m.settings.size())) return 0;
   const int s = layout_.scale, view = settings_view_h();
   const int base = settings_row_base(s, touch_px_);
@@ -1527,6 +1534,7 @@ int Ui::settings_scroll_for(const UiModel& m, int scroll) const {
 }
 
 int Ui::settings_row_hit(const UiModel& m, int x, int y) const {
+  if (skin_on_) return skin::view::set_row_hit(m, x, y, panel_.width, panel_.height);
   x -= ox_;
   y -= oy_ + layout_.top_h + layout_.header_h;
   if (m.screen != Screen::Settings || x < 0 || x >= info_.width || y < 0 || y >= settings_view_h()) return -1;
@@ -1552,6 +1560,7 @@ Ui::Rect Ui::settings_bar(const UiModel& m) const {
 }
 
 int Ui::settings_slider_at(const UiModel& m, int x, int y, bool anywhere) const {
+  if (skin_on_) return skin::view::set_slider_at(m, x, y, panel_.width, panel_.height, anywhere);
   const Rect bar = settings_bar(m);
   if (bar.w <= 0) return -1;
   x -= ox_;

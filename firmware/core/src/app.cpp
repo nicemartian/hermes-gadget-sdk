@@ -2857,6 +2857,12 @@ void App::update_model() {
                    ((sessions || timing) ? "\n" + m.detail : "");
         m.caption_lines = 2;
       }
+      // The Eyes skin's resting face says its name and nothing else: no how-to lines. A running
+      // timer keeps its line.
+      if (profile_.skin_eyes) {
+        m.hint.clear();
+        if (!timing) m.detail.clear();
+      }
     }
     if (clock_showing_) {
       // The resting clock owns the whole panel: the time, the date and the mascot.

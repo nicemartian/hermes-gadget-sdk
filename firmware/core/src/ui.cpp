@@ -509,11 +509,17 @@ void Ui::draw_view(const UiModel& m) {
   // One picture per model, like the clock face: the edge ring goes over it with each push.
   const uint32_t key = skin::view::key(m);
   if (valid_ && full_face_ == FullFace::View && key == face_hash_) return;
+  // A list that was already on the glass redraws and sends only its own rows.
+  int y0 = 0, y1 = panel_.height;
+  const bool list = skin::view::list_rows(m, panel_.height, y0, y1);
+  const bool list_only = list && view_list_ && valid_ && full_face_ == FullFace::View;
+  if (!list_only) y0 = 0, y1 = panel_.height;
+  view_list_ = list;
   full_face_ = FullFace::View;
   face_hash_ = key;
   valid_ = true;
-  each_window(0, panel_.height, [&](int, int) {
-    skin::view::draw(m, display_.framebuffer(), panel_.width, panel_.height, panel_.swap_bytes);
+  each_window(y0, y1, [&](int, int) {
+    skin::view::draw(m, display_.framebuffer(), panel_.width, panel_.height, panel_.swap_bytes, list_only);
   });
 }
 

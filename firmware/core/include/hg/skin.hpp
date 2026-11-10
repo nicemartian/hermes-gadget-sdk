@@ -112,7 +112,11 @@ class Eyes {
 namespace view {
 bool wants(const UiModel& m);
 uint32_t key(const UiModel& m);  // changes whenever the picture does
-void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap);  // the whole panel
+// The whole panel; with `list_only`, on a screen list_rows answers for, those rows alone.
+void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap, bool list_only = false);
+// The panel rows [y0, y1) that hold everything a list screen changes while it stays open
+// (the settings list); false for the screens that have no such rows.
+bool list_rows(const UiModel& m, int h, int& y0, int& y1);
 enum class Hit : uint8_t { None, Yes, No, Back, Action, Previous, Next, Close };
 Hit hit(const UiModel& m, int x, int y, int w, int h);  // panel coordinates
 // Whether the question's text is on the glass in full. A question that is not can be refused

@@ -413,7 +413,7 @@ Bar set_bar(const UiModel& m) {
 void round_box(Surface& s, int x, int y, int w, int h, int r, Rgb c) {
   for (int yy = std::max(0, y); yy < std::min(s.h, y + h); ++yy) {
     const float py = yy + 0.5f, qy = std::max({y + r - py, py - (y + h - r), 0.0f});
-    for (int xx = x; xx < x + w; ++xx) {
+    for (int xx = std::max(0, x); xx < std::min(kSize, x + w); ++xx) {
       const float px = xx + 0.5f, qx = std::max({x + r - px, px - (x + w - r), 0.0f});
       const float a = qx > 0 && qy > 0 ? clamp01(0.5f - (std::sqrt(qx * qx + qy * qy) - r)) : 1.0f;
       if (a > 0) s.add(xx, yy, c, static_cast<int>(a * 255));
@@ -434,17 +434,21 @@ void fade_rows(Surface& s, int y0, int y1, bool rising) {
   }
 }
 
-void draw_settings(Surface& s, const UiModel& m) {
+// `list_only` leaves the way back as it is on the glass and draws the list's rows alone: what a
+// scroll or a tap changes. The list is drawn on its own rows of the panel, which clip it.
+void draw_settings(Surface& panel, const UiModel& m, bool list_only) {
+  Surface s{panel.fb + kSetTop * panel.w, panel.w, kSetBottom - kSetTop, panel.swap};
+  const int view = kSetBottom - kSetTop;
   const int scroll = set_scroll(m), n = static_cast<int>(m.settings.size());
   const std::vector<std::string> desc = set_desc(m);
   for (int i = 0; i < n; ++i) {
-    const int top = kSetTop + set_row_top(m, i) - scroll, h = set_row_h(m, i);
-    if (top >= kSetBottom) break;
-    if (top + h <= kSetTop) continue;
+    const int top = set_row_top(m, i) - scroll, h = set_row_h(m, i);
+    if (top >= view) break;
+    if (top + h <= 0) continue;
     const SettingRow& row = m.settings[static_cast<size_t>(i)];
     const bool sel = i == m.settings_sel;
     const int cy = top + kSetRow / 2, ty = cy - kText2.mid;
-    const Span sp = sel ? set_span(top + 4, top + h - 4) : set_span(cy, cy + 1);
+    const Span sp = sel ? set_span(kSetTop + top + 4, kSetTop + top + h - 4) : set_span(kSetTop + cy, kSetTop + cy + 1);
     if (sp.r - sp.l < 80) continue;  // at the very edge of the glass: under the fade anyway
     if (sel) round_box(s, sp.l - 16, top, sp.r - sp.l + 32, h, 18, kPill);
     int right = sp.r;  // where the label must stop
@@ -475,9 +479,9 @@ void draw_settings(Surface& s, const UiModel& m) {
     if (row.kind == SettingRow::Kind::Slider) {
       const Bar bar = set_bar(m);
       const int w = bar.x1 - bar.x0, fill = w * std::min<int>(100, row.level) / 100;
-      glow_box(s, bar.x0 + w / 2.0f, static_cast<float>(bar.y), static_cast<float>(w), 5, kTrack, 1.0f, 0);
-      if (fill > 2) glow_box(s, bar.x0 + fill / 2.0f, static_cast<float>(bar.y), static_cast<float>(fill), 5, kGold, 1.0f, 0);
-      disc(s, static_cast<float>(bar.x0 + fill), static_cast<float>(bar.y), 10, kWhite, 1.0f);
+      glow_box(s, bar.x0 + w / 2.0f, static_cast<float>(bar.y - kSetTop), static_cast<float>(w), 5, kTrack, 1.0f, 0);
+      if (fill > 2) glow_box(s, bar.x0 + fill / 2.0f, static_cast<float>(bar.y - kSetTop), static_cast<float>(fill), 5, kGold, 1.0f, 0);
+      disc(s, static_cast<float>(bar.x0 + fill), static_cast<float>(bar.y - kSetTop), 10, kWhite, 1.0f);
       y += kSetSlider;
     }
     for (const std::string& line : desc) {
@@ -485,18 +489,16 @@ void draw_settings(Surface& s, const UiModel& m) {
       y += kText2.line;
     }
   }
-  // The list meets the glass softly, and the way back sits over where it has gone.
-  for (int y = 0; y < kSetTop; ++y) s.clear_run(y, 0, kSize);
-  for (int y = kSetBottom; y < kSize; ++y) s.clear_run(y, 0, kSize);
-  fade_rows(s, kSetTop, kSetTop + 22, true);
-  fade_rows(s, kSetBottom - 36, kSetBottom, false);
-  back_pill(s, m);
+  // The list meets the glass softly.
+  fade_rows(s, 0, 22, true);
+  fade_rows(s, view - 36, view, false);
+  if (!list_only) back_pill(panel, m);
   const int max_scroll = set_max_scroll(m);
   if (max_scroll > 0) {  // where the list is, at the right edge
-    const float track = 90, view = static_cast<float>(set_view_h()), thumb = std::max(18.0f, track * view / (view + max_scroll));
+    const float track = 90, thumb = std::max(18.0f, track * view / (view + max_scroll));
     const float x = kSize - 27.5f, at = static_cast<float>(scroll) / max_scroll;
-    glow_box(s, x, kC, 3, track, kTrack, 1.0f, 0);
-    glow_box(s, x, kC - track / 2 + thumb / 2 + (track - thumb) * at, 3, thumb, kMuted, 1.0f, 0);
+    glow_box(s, x, kC - kSetTop, 3, track, kTrack, 1.0f, 0);
+    glow_box(s, x, kC - kSetTop - track / 2 + thumb / 2 + (track - thumb) * at, 3, thumb, kMuted, 1.0f, 0);
   }
 }
 
@@ -550,8 +552,17 @@ uint32_t key(const UiModel& m) {
   return mix(k, (m.hero ? 1u : 0u) | (m.yes.empty() ? 0u : 2u) | (m.no.empty() ? 0u : 4u));
 }
 
-void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap) {
-  std::memset(fb, 0, static_cast<size_t>(w) * h * 2);
+bool list_rows(const UiModel& m, int h, int& y0, int& y1) {
+  if (m.music_view || m.screen != Screen::Settings || h < kSize) return false;
+  y0 = (h - kSize) / 2 + kSetTop;
+  y1 = (h - kSize) / 2 + kSetBottom;
+  return true;
+}
+
+void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap, bool list_only) {
+  int y0 = 0, y1 = h;
+  if (!list_only || !list_rows(m, h, y0, y1)) list_only = false, y0 = 0, y1 = h;
+  std::memset(fb + static_cast<size_t>(y0) * w, 0, static_cast<size_t>(w) * (y1 - y0) * 2);
   if (w < kSize || h < kSize) return;
   // The layout's 466 square, centred on the panel.
   Surface s{fb + (h - kSize) / 2 * w + (w - kSize) / 2, w, kSize, swap};
@@ -564,7 +575,7 @@ void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap) {
     case Screen::Card: draw_card(s, m); break;
     case Screen::Offline: draw_offline(s, m); break;
     case Screen::Dashboard: draw_dash(s, m); break;
-    case Screen::Settings: draw_settings(s, m); break;
+    case Screen::Settings: draw_settings(s, m, list_only); break;
     default: break;
   }
 }

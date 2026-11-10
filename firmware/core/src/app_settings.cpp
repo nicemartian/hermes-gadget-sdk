@@ -270,7 +270,9 @@ void App::settings_tick() {
   if (settings_open() && settings_scroll_ != settings_target_ && now() - settings_step_at_ >= kScrollStepMs) {
     settings_step_at_ = now();
     const int d = settings_target_ - settings_scroll_;
-    settings_scroll_ += d > 0 ? (d + 1) / 2 : (d - 1) / 2;
+    // The Eyes skin's list goes straight there: each of its steps is a whole picture to send.
+    if (profile_.skin_eyes) settings_scroll_ = settings_target_;
+    else settings_scroll_ += d > 0 ? (d + 1) / 2 : (d - 1) / 2;
     update_model();
   }
   if (talk_held_ && cancel_held_ && !settings_chord_fired_ && !camera_open_ &&

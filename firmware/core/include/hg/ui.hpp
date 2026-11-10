@@ -417,6 +417,7 @@ class Ui {
   // is not itself, so Clock -> Alarm -> Clock in one minute still redraws.
   enum class FullFace : uint8_t { None, Alarm, Clock, Battery, Skin, View };
   FullFace full_face_ = FullFace::None;
+  bool view_list_ = false;  // the skin view on the glass is a list (draw_view sends its rows alone)
   bool skin_on_ = false;
   skin::Eyes eyes_;
   uint32_t face_hash_ = 0;

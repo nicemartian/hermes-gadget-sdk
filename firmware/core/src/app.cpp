@@ -1451,6 +1451,7 @@ void App::answer_prompt(bool yes) {
   reply.set("id", prompt_id_).set("answer", yes ? "yes" : "no");
   send(reply);
   clear_prompt();
+  if (yes) ++cheer_;
   last_turn_rx_ = now();  // Hermes resumes the turn from here
   set_hint_flash(tr(yes ? i18n::Msg::AnsweredYes : i18n::Msg::AnsweredNo));
 }
@@ -2518,6 +2519,8 @@ void App::update_model() {
   m.timer_permille = timer_permille();
   m.animate = animation_;
   m.progress_permille = -1;
+  m.attention.clear();
+  m.cheer = cheer_;
   m.flash = false;
   m.battery = m.face_battery = -1;
   m.battery_charging = m.battery_low = false;
@@ -2878,6 +2881,15 @@ void App::update_model() {
       *power_status_->battery_percent <= 10 && power_status_->external_power == false)
     m.detail = tr(Msg::LowBattery);
   if (!hint_flash_.empty()) m.hint = hint_flash_;
+  if (profile_.skin_eyes) {
+    // A status tile that warns ("Claude: needs you") shows on the resting face; when it clears, the eyes smile.
+    std::string waiting;
+    for (const DashRow& row : dash_rows_)
+      if (!row.heading && row.tone == DashRow::Tone::Warn && waiting.empty()) waiting = row.value.empty() ? row.label : row.label + " " + row.value;
+    if (waiting.empty() && attention_shown_) m.cheer = ++cheer_;
+    attention_shown_ = !waiting.empty();
+    if (m.screen == Screen::Ready && m.hero) m.attention = waiting;
+  }
   // Another screen took the answer's place: with the Eyes skin it does not come back when that one closes.
   if (profile_.skin_eyes && mode_ == Mode::Idle && !display_sleeping_ &&
       (m.screen == Screen::Dashboard || m.screen == Screen::Card || m.screen == Screen::Prompt || m.screen == Screen::Settings))

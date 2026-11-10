@@ -79,6 +79,12 @@ class Eyes {
   float gaze_x_ = 0, gaze_y_ = 0;
   uint32_t next_gaze_ms_ = 0, next_blink_ms_ = 2400, blink_at_ms_ = 0;
   bool blinking_ = false;
+  // moods: when the Ready face last changed what it says (its captions leave after a few
+  // seconds and the eyes get sleepy after a long quiet), and the smile after a cheer
+  uint32_t calm_key_ = 0, calm_since_ms_ = 0;
+  uint8_t cheer_ = 0;
+  bool cheering_ = false;
+  uint32_t cheer_at_ms_ = 0;
   // what is on the panel now
   uint32_t face_key_ = 0, ring_key_ = 0, text_key_ = 0;
   Box face_box_, comet_box_;

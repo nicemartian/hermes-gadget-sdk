@@ -103,6 +103,10 @@ struct UiModel {
   uint32_t fine = 0;     // the Eyes skin's finer frame counter (App::kFineMs each), 0 without the skin
   std::string hint;      // bottom bar
   std::string yes, no;   // answer buttons under the hero caption (Prompt screen)
+  // The Eyes skin's Ready face: what is waiting on the user ("Claude needs you"; empty: nothing),
+  // and a count that goes up each time something went well (the eyes smile for a moment).
+  std::string attention;
+  uint8_t cheer = 0;
   // Show the mascot as large as fits, with headline/detail as a caption,
   // instead of the header + text layout.
   bool hero = false;

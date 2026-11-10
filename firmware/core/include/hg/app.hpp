@@ -835,6 +835,8 @@ class App {
   // a yes/no question from Hermes (confirmations, command approvals)
   std::string prompt_id_, prompt_title_, prompt_text_;
   uint32_t prompt_since_ = 0;
+  uint8_t cheer_ = 0;             // the Eyes skin smiles each time this goes up
+  bool attention_shown_ = false;  // a status tile was warning at the last model
   uint32_t prompt_until_ = 0;  // 0 = until answered or withdrawn
 
   // transient messages

@@ -17,6 +17,9 @@ constexpr float kPi = 3.14159265f;
 constexpr int kInner = 191;
 constexpr int kGlow = 24;  // how far an eye's glow reaches
 constexpr int kTextTop = 288;  // the face stays above this row, the captions below it
+// The resting face: its captions stay this long after they change, then fade; a long quiet
+// makes the eyes sleepy; a cheer is a smile this long.
+constexpr uint32_t kCaptionMs = 6000, kCaptionFadeMs = 600, kSleepyMs = 120000, kCheerMs = 2500;
 
 // A stand-in for the voice's level while Hermes speaks (the model carries none): 0..1.
 float voice(float t) {
@@ -30,7 +33,9 @@ struct Target {
   float ew, eh, gap, ey;
 };
 
-Target target_for(const UiModel& m) {
+Target target_for(const UiModel& m, bool sleepy, bool attention) {
+  if (sleepy) return {Rgb{150, 115, 63}, 46, 26, 112, 214};  // lids half down, dimmer
+  if (attention) return {kGold, 54, 86, 120, 200};          // wide open
   switch (m.screen) {
     case Screen::Listening: return {kCyan, 52, 88, 118, 200};
     case Screen::Thinking: return {kViolet, 44, 60, 108, 196};
@@ -39,6 +44,30 @@ Target target_for(const UiModel& m) {
       return {kGold, 46, 66, 112, 200};
     default: return {kGold, 46, 74, 112, 205};
   }
+}
+
+// A smiling eye: a shallow arc open downwards, with the same soft edge and glow as the capsule eyes.
+void smile(Surface& s, float cx, float cy, float r, float width, Rgb c, float glow) {
+  const float half = width / 2, reach = r + half + glow;
+  const float slope = 0.7f, ex = r * 0.819f, ey = -r * 0.574f;  // the ends, 35 degrees above level
+  for (int y = static_cast<int>(cy - reach); y <= static_cast<int>(cy + ey + half + glow) + 1; ++y)
+    for (int x = static_cast<int>(cx - reach); x <= static_cast<int>(cx + reach) + 1; ++x) {
+      const float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
+      float d;
+      if (-dy >= slope * std::fabs(dx)) {
+        d = std::fabs(fast_sqrt(dx * dx + dy * dy) - r) - half;
+      } else {
+        const float qx = std::fabs(dx) - ex, qy = dy - ey;
+        d = fast_sqrt(qx * qx + qy * qy) - half;
+      }
+      if (d >= glow) continue;
+      float a = clamp01(0.5f - d);
+      if (a < 1) {
+        const float g = 1 - std::max(d, 0.0f) / glow;
+        a += (1 - a) * g * g * 0.42f;
+      }
+      s.add(x, y, c, static_cast<int>(a * 255));
+    }
 }
 
 bool g_text = false;
@@ -133,6 +162,7 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
 
   // --- time and easing ---
   const bool first = full || !started_;
+  const bool seen_before = started_;
   if (first) {  // whatever was on the panel goes
     std::memset(fb, 0, static_cast<size_t>(w) * h * 2);
     mark(0, h);
@@ -145,8 +175,30 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
   const float dt = steps * frame_ms_ / 1000.0f;
   const bool move = m.animate;
   const float k = first || !move ? 1.0f : 1.0f - std::exp(-dt * 11.0f);
-  const Target tg = target_for(m);
   const bool speaking = m.screen == Screen::Responding && m.speaking;
+  // Moods of the resting face. What it says leaves after a few seconds, a long quiet makes it
+  // sleepy, something waiting on the user opens the eyes wide, and good news is a short smile.
+  const bool ready = m.screen == Screen::Ready;
+  const bool attention = ready && !m.attention.empty();
+  {
+    uint32_t ck = mix(mix(mix(mix(43, m.headline), m.detail), m.hint), m.attention);
+    ck = mix(ck, static_cast<uint32_t>(m.screen));
+    if (first || ck != calm_key_) {
+      calm_key_ = ck;
+      calm_since_ms_ = now_ms;
+    }
+  }
+  const uint32_t calm_ms = now_ms - calm_since_ms_;
+  const bool quiet = ready && !attention && move && calm_ms >= kCaptionMs;
+  const bool sleepy = quiet && calm_ms >= kSleepyMs;
+  const float caption_alpha = !ready || attention || !move ? 1.0f : clamp01((static_cast<float>(kCaptionMs) - calm_ms) / kCaptionFadeMs);
+  if (m.cheer != cheer_) {
+    cheering_ = seen_before && move;
+    cheer_at_ms_ = now_ms;
+    cheer_ = m.cheer;
+  }
+  if (cheering_ && (now_ms - cheer_at_ms_ >= kCheerMs || !ready)) cheering_ = false;
+  const Target tg = target_for(m, sleepy, attention);
 
   ew_ += (tg.ew - ew_) * k;
   eh_ += (tg.eh - eh_) * k;
@@ -202,6 +254,7 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     key = mix(key, (uint32_t(acc.r) << 16) | (uint32_t(acc.g) << 8) | acc.b);
     key = mix(key, q(mouth_ * 40));
     if (mouth_ > 0.03f) key = mix(key, m.fine);
+    key = mix(key, cheering_);
     if (first || key != face_key_) {
       face_key_ = key;
       const float eh = std::max(6.0f, eh_ * blink), cy = ey_ + gy_;
@@ -243,6 +296,11 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
           }
         }
       }
+      if (cheering_) {
+        for (int side : {-1, 1}) smile(s, C + side * gap_ / 2 + gx_, cy + 30, 34, 13, acc, 14);
+        face_box_ = box;
+        mark(y0, std::min(y1, kTextTop));
+      } else {
       uint16_t lut[256];
       for (int a = 0; a < 256; ++a) {
         const uint16_t v = static_cast<uint16_t>((((acc.r * a) >> 11) << 11) | (((acc.g * a) >> 10) << 5) | ((acc.b * a) >> 11));
@@ -269,6 +327,7 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       }
       face_box_ = box;
       mark(y0, std::min(y1, kTextTop));
+      }
     }
   }
 
@@ -277,6 +336,8 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     uint32_t key = mix(mix(mix(23, m.headline), m.detail), m.hint);
     key = mix(mix(key, static_cast<uint32_t>(m.screen)), (uint32_t(m.caption_lines) << 1) | speaking);
     // While the reply is spoken the face is alone on the glass: the words come after, on the answer view.
+    key = mix(key, static_cast<uint32_t>(std::ceil(caption_alpha * 12)));
+    key = mix(key, m.attention);
     if (speaking) key = 0x5EA4;
     if (first || key != text_key_) {
       text_key_ = key;
@@ -297,10 +358,11 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         draw_text(s, f, static_cast<int>(C) - text_width(f, line) / 2, y, line, c, a);
       };
       int y = kTextTop + 2;
-      if (!speaking) centred(kText3, y, m.headline, kFg, 0.96f);
+      const float ca = caption_alpha;
+      if (!speaking && ca > 0) centred(kText3, y, attention ? m.attention : m.headline, attention ? kGold : kFg, 0.96f * ca);
       y += kText3.line + 1;
       const int max_lines = std::max<int>(1, std::min<int>(m.caption_lines, 2));
-      std::string detail = speaking ? std::string() : m.detail;
+      std::string detail = speaking || attention || ca <= 0 ? std::string() : m.detail;
       if (detail == m.headline) detail.clear();  // a status that only repeats the headline
       std::vector<std::string> lines = wrap(kText2, detail, chord(y, y + max_lines * kText2.line));
       if (static_cast<int>(lines.size()) > max_lines) {
@@ -312,10 +374,10 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         }
       }
       for (const std::string& line : lines) {
-        centred(kText2, y, line, speaking ? kFg : kMuted, speaking ? 0.96f : 1.0f);
+        centred(kText2, y, line, speaking ? kFg : kMuted, speaking ? 0.96f : ca);
         y += kText2.line;
       }
-      if (!m.hint.empty() && !speaking) centred(kText2, 372, m.hint, kMuted, 0.75f);
+      if (!m.hint.empty() && !speaking && !attention && ca > 0) centred(kText2, 372, m.hint, kMuted, 0.75f * ca);
       if (!speaking) mark(top, bottom);
     }
   }
@@ -332,6 +394,10 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     key = mix(key, (uint32_t(acc.r) << 16) | (uint32_t(acc.g) << 8) | acc.b);
     if (ring == Ring::Pulse) key = mix(key, static_cast<uint32_t>(level_ * 200));
     if (ring == Ring::Comet || ring == Ring::Ticks) key = mix(key, m.fine);
+    // Something waits on the user: the still ring breathes, a few steps a second.
+    const bool breathe = attention && ring == Ring::Still;
+    const float breath = breathe ? 0.5f - 0.5f * std::cos(t * 2.2f) : 0.0f;
+    if (breathe) key = mix(key, static_cast<uint32_t>(breath * 10));
     if (first || key != ring_key_) {
       const bool same_comet = !first && ring == Ring::Comet && ring_ == Ring::Comet;
       ring_key_ = key;
@@ -361,14 +427,14 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       } else {
         clear_band(0, h);
         if (ring == Ring::Still) {
-          const float rr = R - 8.0f;
+          const float rr = R - 8.0f, half = breathe ? 1.0f + 1.5f * breath : 1.0f, alpha = breathe ? 0.35f + 0.6f * breath : 0.3f;
           for (int y = 0; y < h; ++y) {
             const int16_t* b = &band_[static_cast<size_t>(y) * 4];
             for (int run = 0; run < 2; ++run)
               for (int x = b[run * 2]; x < b[run * 2 + 1]; ++x) {
-                const float d = std::fabs(std::hypot(x + 0.5f - C, y + 0.5f - cy) - rr) - 1.0f;
+                const float d = std::fabs(std::hypot(x + 0.5f - C, y + 0.5f - cy) - rr) - half;
                 const float a = clamp01(0.5f - d);
-                if (a > 0) s.add(x, y, acc, static_cast<int>(a * 0.3f * 255));
+                if (a > 0) s.add(x, y, acc, static_cast<int>(a * alpha * 255));
               }
           }
         } else if (ring == Ring::Pulse) {

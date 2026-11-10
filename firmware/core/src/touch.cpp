@@ -43,6 +43,9 @@ void TouchGestures::update(bool touching, int x, int y, uint32_t now_ms) {
         press(Button::Talk);
         release(Button::Talk);
         break;
+      case State::Settings:  // lifted before the hold ran out: a tap, which opens settings where the title is a button
+        if (app_.settings_tap_opens()) app_.open_settings();
+        break;
       case State::Picker: app_.profile_tap(x0_, y0_); break;
       case State::List: app_.settings_tap(x0_, y0_); break;
       case State::ListDrag: app_.settings_lift(); break;

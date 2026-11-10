@@ -168,6 +168,8 @@ class App {
   void close_settings();
   bool settings_open() const { return menu_ != Menu::Closed; }
   bool settings_title_hit(int x, int y) const;
+  // On the Eyes skin's sessions screen the title is a button: a tap opens settings, no hold needed.
+  bool settings_tap_opens() const { return profile_.skin_eyes && overlay_ == Overlay::Dashboard; }
   // Touch on the settings list (TouchGestures), in panel coordinates. While it is
   // live (open, no hardware check running), a press starts a touch; a drag scrolls
   // the list with the finger, or moves the selected row's slider when the press

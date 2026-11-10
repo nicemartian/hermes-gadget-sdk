@@ -251,7 +251,10 @@ class Ui {
   int profile_thumb_px(int cap) const;
   bool title_hit(int x, int y) const {
     const int left = ox_ + (info_.width - layout_.title_w) / 2;
-    return x >= left && x < left + layout_.title_w && y >= oy_ && y < oy_ + layout_.top_h;
+    // The Eyes skin's target reaches up to the glass edge and a little under the band: a finger
+    // finds the top of a round screen more easily than a 36-pixel strip.
+    const int top = skin_on_ ? 0 : oy_, bottom = oy_ + layout_.top_h + (skin_on_ ? 4 * layout_.scale : 0);
+    return x >= left && x < left + layout_.title_w && y >= top && y < bottom;
   }
 
  private:

@@ -1183,6 +1183,17 @@ int Ui::name_marker_x() const {
   return info_.width - 2 * s - 3 * s - Canvas::text_width("v", s);  // name_rect's right edge, less 3s
 }
 
+int Ui::prompt_hit(const UiModel& m, int x, int y) const {
+  if (m.yes.empty() && m.no.empty()) return 0;
+  const int s = layout_.scale, bh = Canvas::line_height(s) + 4 * s, pad = 8 * s;
+  const HeroGeom g = hero_geom(m);
+  x -= ox_;
+  y -= oy_;
+  if (y < g.buttons_y - pad || y >= g.buttons_y + bh + pad) return 0;
+  if (x < info_.width / 2) return m.yes.empty() ? 0 : 1;
+  return m.no.empty() ? 0 : -1;
+}
+
 bool Ui::name_hit(const UiModel& m, int x, int y) const { return name_rect(m).has(x - ox_, y - oy_); }
 
 namespace {

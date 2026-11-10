@@ -78,6 +78,8 @@ struct DeviceProfile {
   // The TALK key and the power key trade jobs: the power key's short press starts a hands-free
   // recording (and a second one sends it), and the TALK key darkens the screen or goes Back.
   bool swap_keys = false;
+  // After this long without a turn the device asks for a fresh conversation, quietly (0: never).
+  uint32_t fresh_session_idle_ms = 0;
   uint32_t frame_budget_us = FrameStats::kDefaultBudgetUs;
   uint32_t frame_log_ms = 10000;
   // Room for a face from Hermes (docs/protocol.md#faces): about 27 KB, and its message at once.
@@ -252,6 +254,9 @@ class App {
   // answers or dismisses, and nothing there opens the microphone.
   bool touch_talk() const { return touch_talk_; }
   bool touch_presses_talk() const;
+  // The Eyes skin's question has two buttons: a tap answers only on one of them, never elsewhere.
+  bool prompt_buttons() const { return profile_.skin_eyes && profile_.touch_screen && prompt_showing(); }
+  void prompt_tap(int x, int y);
   std::string agent_profile_name() const;
   // Returns true when this input only wakes a sleeping display.
   bool wake_display();
@@ -568,7 +573,7 @@ class App {
   // `language` is auto: follow the language Hermes sends in `welcome` (English until it does).
   bool lang_auto_ = false;
   std::optional<i18n::Lang> hermes_lang_;  // from the last `welcome` that named one this firmware has
-  enum class Menu : uint8_t { Closed, Volume, Brightness, TalkMode, TouchTalk, Profile, ProfileGrid, Microphone, Speaker, Display, Inputs,
+  enum class Menu : uint8_t { Closed, Volume, Speak, Brightness, TalkMode, TouchTalk, Profile, ProfileGrid, Microphone, Speaker, Display, Inputs,
                               Camera, Info, Power, BatteryAlert, BatteryAlertSound, ChargingNotice, ChargingSound, ChargedNotice, ChargedSound,
                               WifiDeepSleep, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, DoubleHome,
                               WakeTalk, Animation, SdLog, Back };
@@ -696,6 +701,9 @@ class App {
   bool sd_log_ = false;                // the `sd_log` setting
   bool wake_talk_ = false;            // the `wake_talk` setting
   bool touch_talk_ = true;            // the `touch_talk` setting
+  bool session_used_ = false;         // a turn ran since the last fresh conversation
+  uint32_t quiet_reset_until_ = 0;    // a quiet session.new is out: its confirmation is not shown until then
+  bool speak_ = true;                 // the `speak` setting: off shows replies as text alone
   bool reply_while_face_down_ = false;  // a reply arrived while dark; show it on the turn-over
   uint8_t wake_buttons_ = 0;
 

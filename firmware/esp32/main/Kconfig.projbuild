@@ -64,6 +64,14 @@ menu "Hermes Gadget"
             press sends it) and the TALK key darkens the screen or goes Back.
             A long hold of the power key stays the power chip's own.
 
+    config HG_FRESH_SESSION_MIN
+        int "Start a fresh conversation after this many idle minutes (0: never)"
+        default 0
+        help
+            After this long without a turn the device quietly asks Hermes for
+            a new conversation, so a desk device's history does not grow all
+            day and slow every answer.
+
     config HG_SPEAKER_LEAD_MS
         int "Silence played before a reply's first sample (ms)"
         default 0

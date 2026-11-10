@@ -249,6 +249,8 @@ class Ui {
   // The side of the largest profile icon this panel draws (a page of up to four, at the touch size
   // set): the size Hermes sends thumbnails at, at most `cap`. 0 without a grid.
   int profile_thumb_px(int cap) const;
+  // A question's answer under a touch: +1 yes, -1 no, 0 neither (a finger's margin around the buttons).
+  int prompt_hit(const UiModel& m, int x, int y) const;
   bool title_hit(int x, int y) const {
     const int left = ox_ + (info_.width - layout_.title_w) / 2;
     // The Eyes skin's target reaches up to the glass edge and a little under the band: a finger

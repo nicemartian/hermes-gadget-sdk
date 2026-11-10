@@ -21,7 +21,7 @@ void TouchGestures::tick(uint32_t now_ms) {
   // With touch_talk off a still finger stays Pending where TALK would record: its lift is a tap
   // that does nothing there, and it can still become a swipe down.
   if (state_ == State::Pending && static_cast<int32_t>(now_ms - t0_) >= static_cast<int32_t>(cfg_.hold_ms) &&
-      app_.touch_presses_talk()) {
+      app_.touch_presses_talk() && !app_.prompt_buttons()) {
     state_ = State::Talk;
     press(Button::Talk);
   }
@@ -32,6 +32,10 @@ void TouchGestures::update(bool touching, int x, int y, uint32_t now_ms) {
     switch (state_) {
       case State::Pending:  // a quick tap
         if (from_clock_) break;  // Ready came back at touch-down; a tap does nothing else
+        if (app_.prompt_buttons()) {  // a question's buttons: a tap off them answers nothing
+          app_.prompt_tap(x0_, y0_);
+          break;
+        }
         // A long press that didn't become TALK (touch_talk off) isn't a tap: it opens nothing on lift.
         if (!app_.touch_presses_talk() && static_cast<int32_t>(now_ms - t0_) >= static_cast<int32_t>(kTapMaxMs)) break;
         if (app_.show_reply_text()) break;  // the caption under the talking face gives way to the text

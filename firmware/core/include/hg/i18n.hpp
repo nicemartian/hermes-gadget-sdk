@@ -38,6 +38,9 @@ namespace hg::i18n {
   X(TouchTalk,              "Touch to talk") \
   X(TouchTalkOn,            "On\nTouch the screen to talk.") \
   X(TouchTalkOff,           "Off\nTalk with {0}; touch only navigates.") \
+  X(SpeakAnswers,           "Speak answers") \
+  X(SpeakAnswersOn,         "On\nHermes reads answers aloud.") \
+  X(SpeakAnswersOff,        "Off\nAnswers show as text only.") \
   X(TalkHold,               "Hold") \
   X(TalkTap,                "Tap") \
   X(MicCheck,               "Microphone check") \

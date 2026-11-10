@@ -568,6 +568,7 @@ extern "C" void app_main(void) {
   profile.skin_eyes = true;
   profile.min_utterance_ms = 800;  // a stray half-second tap interrupted the reply in progress
 #endif
+  profile.fresh_session_idle_ms = static_cast<uint32_t>(CONFIG_HG_FRESH_SESSION_MIN) * 60000u;
 #if CONFIG_HG_SWAP_KEYS
   profile.swap_keys = board.axp_power_key || board.pwr_key.enabled;
 #endif

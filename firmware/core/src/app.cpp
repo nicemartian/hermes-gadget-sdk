@@ -79,7 +79,7 @@ constexpr uint32_t kBackoffMs[] = {1000, 2000, 4000, 8000, 15000, 30000};
 constexpr size_t kBackoffSteps = sizeof(kBackoffMs) / sizeof(kBackoffMs[0]);
 
 const char* const kSettingKeys[] = {"name", "server", "token", "talk_mode", "volume", "brightness", "screen_timeout", "battery_display", "battery_estimate", "language", "wifi_ssid", "wifi_pass",
-                                    "face_down_sleep", "clock", "time_format", "touch_wake", "battery_alert", "battery_alert_sound", "charging_notice", "charging_sound", "charged_notice", "charged_sound", "double_home", "wake_talk", "touch_talk", "profile_grid", "wifi_deep_sleep", "animation", "sd_log"};
+                                    "face_down_sleep", "clock", "time_format", "touch_wake", "battery_alert", "battery_alert_sound", "charging_notice", "charging_sound", "charged_notice", "charged_sound", "double_home", "wake_talk", "touch_talk", "speak", "profile_grid", "wifi_deep_sleep", "animation", "sd_log"};
 
 // NVS limits storage keys to 15 characters; keep the public setting name unchanged.
 std::string_view setting_storage_key(std::string_view key) {
@@ -254,6 +254,7 @@ void App::load_settings() {
   double_home_ = setting("double_home", "on") != "off";
   wake_talk_ = setting("wake_talk", "off") == "on";
   touch_talk_ = !profile_.talk_key || setting("touch_talk", "on") != "off";
+  speak_ = setting("speak", "on") != "off";
   wifi_deep_sleep_ = setting("wifi_deep_sleep", "on") != "off";
   animation_ = setting("animation", "on") != "off";
   sd_log_ = setting("sd_log", "off") == "on";
@@ -636,7 +637,7 @@ void App::send_hello() {
     m.set("rate", profile_.mic_rate).set("format", "pcm16");
     caps.set("mic", m);
   }
-  if (hal_.speaker) {
+  if (hal_.speaker && speak_) {  // speak off: no speaker announced, so the server sends text alone
     json::Value s = json::Value::object();
     s.set("rate", profile_.speaker_rate).set("format", "pcm16");
     if (hal_.speaker_decoder) {
@@ -718,6 +719,16 @@ void App::on_transport_text(std::string_view text) {
   }
   const std::string& type = msg["type"].as_string();
   if (type != "ping") traffic_at_ = now();
+  if (quiet_reset_until_) {
+    // The idle reset's own turn: Hermes confirms the new conversation, and nobody asked to see or hear that.
+    static constexpr std::string_view kTurn[] = {"turn.start", "turn.end", "status", "reply.delta", "reply",
+                                                  "audio.start", "audio.end", "audio.abort", "transcript"};
+    if (static_cast<int32_t>(now() - quiet_reset_until_) >= 0) quiet_reset_until_ = 0;
+    else if (std::find(std::begin(kTurn), std::end(kTurn), type) != std::end(kTurn)) {
+      if (type == "turn.end") quiet_reset_until_ = 0;
+      return;
+    }
+  }
   for (const auto& r : kRoutes) {
     if (type == r.type) {
       (this->*r.handler)(msg);
@@ -1129,6 +1140,7 @@ void App::h_turn_start(const json::Value& m) {
 void App::h_turn_end(const json::Value& m) {
   const std::string& turn = m["turn"].as_string();
   if (!active_turn_.empty() && !turn.empty() && turn != active_turn_) return;
+  session_used_ = true;
   turn_done_ = true;
   last_turn_rx_ = now();
   if (m["outcome"].as_string() == "failure" && reply_.empty()) {
@@ -1189,7 +1201,7 @@ void App::h_reply(const json::Value& m) {
 }
 
 void App::h_audio_start(const json::Value& m) {
-  if (face_down_) return;  // face down mutes Hermes; the stream is never begun, its frames are dropped
+  if (face_down_ || !speak_) return;  // face down or speak off: the stream is never begun, its frames are dropped
   alarm_ringing_ = false;  // Hermes speaks now: the alarm stays on screen, quiet
   close_setup_screens();
   wake_display();
@@ -1419,7 +1431,7 @@ bool App::prompt_showing() const { return !prompt_id_.empty() && mode_ != Mode::
 
 bool App::touch_presses_talk() const {
   // Everywhere else TALK records, sends a tap-mode recording or flashes why it can't.
-  return touch_talk_ || settings_open() || prompt_showing() || (alarm_ && model_.screen == Screen::Alarm);
+  return touch_talk_ || settings_open() || (prompt_showing() && !prompt_buttons()) || (alarm_ && model_.screen == Screen::Alarm);
 }
 
 bool App::prompt_armed(uint32_t pressed_at) const {
@@ -1435,6 +1447,13 @@ void App::answer_prompt(bool yes) {
   clear_prompt();
   last_turn_rx_ = now();  // Hermes resumes the turn from here
   set_hint_flash(tr(yes ? i18n::Msg::AnsweredYes : i18n::Msg::AnsweredNo));
+}
+
+void App::prompt_tap(int x, int y) {
+  if (!ui_ || !prompt_showing()) return;
+  const int hit = ui_->prompt_hit(model_, x, y);
+  if (hit && prompt_armed(now())) answer_prompt(hit > 0);
+  update_model();
 }
 
 void App::clear_prompt() {
@@ -1636,7 +1655,10 @@ void App::on_button(Button button, bool pressed, bool touch) {
       } else if (mode_ == Mode::Listening) cancel_listening("cancelled");
       else if (overlay_ != Overlay::None) dismiss_overlay();
       else if (mode_ == Mode::Thinking || mode_ == Mode::Responding) cancel_turn();
-      else if (dashboard_ready_ && paired_) {
+      else if (profile_.skin_eyes && !reply_.empty() && static_cast<int32_t>(reply_until_ - now()) > 0) {
+        reply_until_ = now();  // the answer has been read: back to the face, and the next swipe opens sessions
+        scroll_ = -1;
+      } else if (dashboard_ready_ && paired_) {
         overlay_ = Overlay::Dashboard;
         overlay_until_ = 0;
         dash_scroll_ = 0;
@@ -1665,6 +1687,7 @@ void App::on_button(Button button, bool pressed, bool touch) {
 }
 
 void App::start_listening(bool hands_free) {
+  quiet_reset_until_ = 0;
   stop_playback();
   dismiss_overlay();
   if (alarm_) dismiss_alarm();
@@ -1887,6 +1910,7 @@ void App::start_new_session() {
   close_camera();
   clear_prompt();
   send(proto::message("session.new"));
+  session_used_ = false;
   reply_.clear();
   user_echo_.clear();
   status_ = tr(i18n::Msg::StartingNewSession);
@@ -2271,6 +2295,13 @@ void App::h_ota_abort(const json::Value&) {
 
 void App::tick() {
   const uint32_t t = now();
+  if (profile_.fresh_session_idle_ms && session_used_ && mode_ == Mode::Idle && can_talk() && prompt_id_.empty() &&
+      !rec_on_ && elapsed(t, last_turn_rx_) >= profile_.fresh_session_idle_ms) {
+    // Long enough since the last turn that the next question is a new subject: a short history keeps Hermes quick.
+    send(proto::message("session.new"));
+    session_used_ = false;
+    quiet_reset_until_ = (t + 20000) | 1;
+  }
   power_tick();
   motion_tick();
   clock_tick();
@@ -2754,7 +2785,7 @@ void App::update_model() {
     // arrives a second or two before the voice: hold it back that long, so the face does not
     // flash text first. A reply with no voice shows its text when the wait runs out.
     if (m.speaking) reply_spoke_ = true;
-    if (profile_.skin_eyes && !m.speaking && !reply_spoke_ && !reply_shown_ && !reply_.empty() &&
+    if (profile_.skin_eyes && speak_ && !m.speaking && !reply_spoke_ && !reply_shown_ && !reply_.empty() &&
         now() - mode_since_ < kVoiceWaitMs) {
       m.hero = true;
       m.detail.clear();
@@ -2780,6 +2811,9 @@ void App::update_model() {
     m.hint = profile_.touch_screen && touch_talk_ ? std::string(tr(tap ? Msg::TapScreenToTalk : Msg::HoldScreenToTalk))
                                    : tr(tap ? Msg::TapButtonToTalk : Msg::HoldButtonToTalk, {talk});
     bool showing_reply = !reply_.empty() && static_cast<int32_t>(reply_until_ - now()) > 0;
+    // The Eyes skin's answer view is text alone: a notice or a flashed hint has no line there, so the
+    // face comes back to carry it, and the answer returns when it clears.
+    if (profile_.skin_eyes && (!notice_.empty() || !hint_flash_.empty())) showing_reply = false;
     m.hero = !showing_reply;
     if (m.hero) {
       const bool switching = agent_profiles_.size() > 1;
@@ -2824,6 +2858,10 @@ void App::update_model() {
       *power_status_->battery_percent <= 10 && power_status_->external_power == false)
     m.detail = tr(Msg::LowBattery);
   if (!hint_flash_.empty()) m.hint = hint_flash_;
+  // Another screen took the answer's place: with the Eyes skin it does not come back when that one closes.
+  if (profile_.skin_eyes && mode_ == Mode::Idle && !display_sleeping_ &&
+      (m.screen == Screen::Dashboard || m.screen == Screen::Card || m.screen == Screen::Prompt || m.screen == Screen::Settings))
+    reply_until_ = now();
   if (!display_sleeping_) render(m);
 }
 
@@ -3023,6 +3061,7 @@ std::string App::console(std::string_view raw) {
       return "@error wake_talk must be on or off";
     if (key == "touch_talk" && !value.empty() && value != "on" && value != "off")
       return "@error touch_talk must be on or off";
+    if (key == "speak" && !value.empty() && value != "on" && value != "off") return "@error speak must be on or off";
     if (key == "wifi_deep_sleep" && !value.empty() && value != "on" && value != "off")
       return "@error wifi_deep_sleep must be on or off";
     if (key == "animation" && !value.empty() && value != "on" && value != "off")
@@ -3052,7 +3091,8 @@ std::string App::console(std::string_view raw) {
       WifiNetworks networks = WifiNetworks::load(*hal_.storage);
       if (networks.dirty()) networks.save(*hal_.storage);
     }
-    if (key == "server" || key == "token") {
+    // "speak" changes what hello announces (no speaker: Hermes makes no voice), so it reconnects too.
+    if (key == "server" || key == "token" || (key == "speak" && hal_.speaker)) {
       // Reconnect with the new endpoint or credentials.
       fatal_.clear();
       if (phase_ != Phase::Boot && phase_ != Phase::NoNetwork) {

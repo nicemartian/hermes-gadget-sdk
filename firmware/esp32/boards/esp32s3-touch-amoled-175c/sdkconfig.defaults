@@ -43,3 +43,5 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_eyes_32mb.csv"
 CONFIG_HG_SPEAKER_LEAD_MS=400
 # PWR talks, BOOT darkens the screen and goes Back.
 CONFIG_HG_SWAP_KEYS=y
+# A desk device's conversation otherwise grows all day; every question then carries the whole history.
+CONFIG_HG_FRESH_SESSION_MIN=5

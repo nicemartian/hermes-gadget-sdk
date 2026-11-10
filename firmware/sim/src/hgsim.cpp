@@ -252,6 +252,7 @@ hgsim* hgsim_create(const hgsim_config* cfg, const hgsim_host* host) {
   profile.motion_sensor = cfg->motion != 0;
   // The Eyes skin, for trying it without a board: HGSIM_SKIN_EYES=1 in the environment.
   profile.skin_eyes = std::getenv("HGSIM_SKIN_EYES") != nullptr;
+  if (const char* ms = std::getenv("HGSIM_FRESH_SESSION_MS")) profile.fresh_session_idle_ms = static_cast<uint32_t>(std::atoi(ms));
   profile.colour_face_alloc = std::malloc;
   profile.recording_alloc = std::malloc;  // like a board with PSRAM: a lost connection keeps the recording
   sim->app = std::make_unique<hg::App>(sim->hal, profile);

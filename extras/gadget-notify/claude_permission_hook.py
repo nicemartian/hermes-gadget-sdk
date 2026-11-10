@@ -11,7 +11,9 @@ call, No denies it. No answer in time, a gadget that is offline, or a request to
 in full prints nothing, so Claude Code's own prompt carries on as if this hook were not there:
 the gadget never approves what it could not show.
 
-Environment: GADGET_DEVICE (required, hg-...), GADGET_ASK_SECONDS (default 30).
+Only Bash, Read, WebFetch and WebSearch requests are asked; everything else stays on the computer.
+
+Environment: GADGET_DEVICE (required, hg-...), GADGET_ASK_SECONDS (default 10).
 """
 import json, os, subprocess, sys
 from pathlib import Path
@@ -30,7 +32,7 @@ def describe(tool: str, args: dict):
     elif tool in ("WebFetch", "WebSearch"):
         text = str(args.get("url") or args.get("query") or "")
     else:
-        text = json.dumps(args, ensure_ascii=False, sort_keys=True)
+        return None  # other tools' arguments are raw JSON: not something to judge on a small screen
     # Shown exactly as it would run, or not at all: a question that reflowed a command's lines or
     # dropped a character the screen cannot draw would be approving something else.
     if not text or len(text) > MAX_SHOWN or text != " ".join(text.split()) or not text.isprintable():
@@ -51,7 +53,7 @@ def main() -> int:
     project = Path(str(event.get("cwd") or "")).name
     title = f"Claude: allow {tool}?"[:64]
     text = f"{shown}\n({project})" if project else shown
-    seconds = os.environ.get("GADGET_ASK_SECONDS", "30")
+    seconds = os.environ.get("GADGET_ASK_SECONDS", "10")
     notify = Path(__file__).with_name("gadget_notify.py")
     try:
         run = subprocess.run([sys.executable, str(notify), title, text, "--ask", "--seconds", seconds],

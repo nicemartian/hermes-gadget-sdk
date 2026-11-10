@@ -805,10 +805,12 @@ void Ui::draw_top(Canvas& c, const UiModel& m) {
     // behind it. The label line (2r + 4s .. 2r + 13s) fits the band.
     int r = std::max(2, 3 * s / 2 + 1);
     if (m.settings_hold) {
-      const char* control =
-          i18n::text(m.lang, m.screen == Screen::Settings ? i18n::Msg::BackToHermesTarget : i18n::Msg::SettingsTarget);
+      // The Eyes skin's settings have the same way back as its other screens: a button a tap answers.
+      const bool button = skin_on_ && m.screen == Screen::Settings;
+      const char* control = i18n::text(m.lang, button ? i18n::Msg::Back
+                                                   : m.screen == Screen::Settings ? i18n::Msg::BackToHermesTarget
+                                                                                  : i18n::Msg::SettingsTarget);
       const int tw = Canvas::text_width(control, s);
-      const bool button = skin_on_ && m.screen == Screen::Dashboard;  // a tap opens settings there
       if (button) c.fill_round_rect((w - tw) / 2 - 6 * s, 2 * r + 2 * s, tw + 12 * s, layout_.top_h - 2 * r - 2 * s, 5 * s, kBar);
       c.text((w - tw) / 2, 2 * r + 4 * s, control, s, button ? kText : kDim);
     }

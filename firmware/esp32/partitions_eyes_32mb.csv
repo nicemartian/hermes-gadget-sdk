@@ -1,0 +1,9 @@
+# The Eyes skin's table for 32 MB boards: the same layout as partitions.csv (nvs, otadata and
+# phy_init at the same offsets, so saved settings survive the change) with two 4 MB app slots.
+# A stock release still fits these slots; an image built for them may not fit stock ones.
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x6000
+otadata,  data, ota,     0xf000,   0x2000
+phy_init, data, phy,     0x11000,  0x1000
+ota_0,    app,  ota_0,   0x20000,  0x400000
+ota_1,    app,  ota_1,   0x420000, 0x400000

@@ -421,8 +421,50 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       if (mouth_ > 0.03f) box.y1 = std::max(box.y1, static_cast<int>(mouth_y + 20 + 10));
       const Box was = face_box_;
       const int y0 = was.empty() ? box.y0 : std::min(was.y0, box.y0), y1 = was.empty() ? box.y1 : std::max(was.y1, box.y1);
-      clear_inner(y0, std::min(y1, kTextTop));
-      for (int side : {-1, 1}) glow_box(s, C + side * gap_ / 2 + gx_, cy, ew_, eh, acc, 1.0f, kGlow);
+      // Clear only the columns the old and the new face cover, inside the ring band.
+      const int cx0 = was.empty() ? box.x0 : std::min(was.x0, box.x0), cx1 = was.empty() ? box.x1 : std::max(was.x1, box.x1);
+      for (int y = std::max(0, y0); y < std::min({h, y1, kTextTop}); ++y) {
+        const int16_t* b = &band_[static_cast<size_t>(y) * 4];
+        if (b[3] > b[0]) s.clear_run(y, std::max<int>(b[1], cx0), std::min<int>(b[2], cx1));
+      }
+      // One eye's coverage, computed when its size changes (a blink, a change of state) and
+      // copied otherwise: the float work is not per frame, and the copy never reads the panel.
+      const uint32_t shape = mix(mix(31, q(ew_)), q(eh));
+      if (shape != eye_key_ || eye_.empty()) {
+        eye_key_ = shape;
+        eye_w_ = static_cast<int>(std::ceil(ew_)) + 2 * kGlow + 2;
+        eye_h_ = static_cast<int>(std::ceil(eh)) + 2 * kGlow + 2;
+        eye_.assign(static_cast<size_t>(eye_w_) * eye_h_, 0);
+        const float hw = ew_ / 2, hh = eh / 2, rad = std::min(hw, hh), glow = kGlow;
+        for (int y = 0; y < eye_h_; ++y) {
+          const float qy = std::fabs(y + 0.5f - eye_h_ / 2.0f) - (hh - rad), oy = std::max(qy, 0.0f);
+          for (int x = 0; x < eye_w_; ++x) {
+            const float qx = std::fabs(x + 0.5f - eye_w_ / 2.0f) - (hw - rad);
+            const float d = (qx > 0 && qy > 0 ? fast_sqrt(qx * qx + oy * oy) : std::max(qx, qy)) - rad;
+            float a = clamp01(0.5f - d);
+            if (a < 1 && d < glow) {
+              const float g = 1 - std::max(d, 0.0f) / glow;
+              a += (1 - a) * g * g * 0.42f;
+            }
+            eye_[static_cast<size_t>(y) * eye_w_ + x] = static_cast<uint8_t>(a * 255);
+          }
+        }
+      }
+      uint16_t lut[256];
+      for (int a = 0; a < 256; ++a) {
+        const uint16_t v = static_cast<uint16_t>((((acc.r * a) >> 11) << 11) | (((acc.g * a) >> 10) << 5) | ((acc.b * a) >> 11));
+        lut[a] = swap ? static_cast<uint16_t>((v >> 8) | (v << 8)) : v;
+      }
+      for (int side : {-1, 1}) {
+        const int ex = static_cast<int>(std::lround(C + side * gap_ / 2 + gx_)) - eye_w_ / 2;
+        const int ty = static_cast<int>(std::lround(cy)) - eye_h_ / 2;
+        for (int y = std::max(0, -ty); y < eye_h_ && ty + y < h; ++y) {
+          const uint8_t* src = &eye_[static_cast<size_t>(y) * eye_w_];
+          uint16_t* dst = fb + static_cast<size_t>(ty + y) * w + ex;
+          for (int x = std::max(0, -ex); x < eye_w_ && ex + x < w; ++x)
+            if (src[x]) dst[x] = lut[src[x]];
+        }
+      }
       if (mouth_ > 0.03f) {
         const int n = 9;
         const float bw = 7, bg = 7, total = n * bw + (n - 1) * bg;

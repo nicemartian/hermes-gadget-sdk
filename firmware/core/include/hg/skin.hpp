@@ -83,6 +83,11 @@ class Eyes {
   uint32_t face_key_ = 0, ring_key_ = 0, text_key_ = 0;
   Box face_box_, comet_box_;
   Ring ring_ = Ring::None;
+  // One eye's coverage (0..255 per pixel, glow included), kept until its size changes: moving
+  // the gaze then only copies it.
+  std::vector<uint8_t> eye_;
+  int eye_w_ = 0, eye_h_ = 0;
+  uint32_t eye_key_ = 0;
   std::vector<int16_t> band_;  // per row: the ring band's two pixel runs (x0, x1, x0, x1)
   int band_w_ = 0;
 };

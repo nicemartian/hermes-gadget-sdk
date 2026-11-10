@@ -23,10 +23,10 @@ def describe(tool: str, args: dict):
     """One line that says all of what the call does, or None when it cannot be said in full."""
     if tool == "Bash":
         text = str(args.get("command") or "")
-    elif tool in ("Edit", "Write", "NotebookEdit", "Read"):
-        text = str(args.get("file_path") or args.get("notebook_path") or "")
-        if tool != "Read":
-            return None if not text else f"{tool} {text}"  # the path is shown; the change itself is not
+    elif tool in ("Edit", "Write", "NotebookEdit"):
+        return None  # a path would show, the change itself would not: that stays on the computer
+    elif tool == "Read":
+        text = str(args.get("file_path") or "")
     elif tool in ("WebFetch", "WebSearch"):
         text = str(args.get("url") or args.get("query") or "")
     else:

@@ -48,6 +48,9 @@ ASKS = {"input needed": "has a question", "sandbox request": "wants approval",
 NOT_WAITING = ("dialog open",)
 APPS = {"cli": "Terminal", "claude-desktop": "Claude app"}
 NOTE_CHARS = 26
+NAME_CHARS = 26     # what the gadget takes for a row's name; it cuts it to fit beside "working"
+SESSION_ROWS = 4    # the gadget lists eight tiles at most
+BUSY_HOLD_S = 45
 
 
 def asks(session):
@@ -76,15 +79,50 @@ def where(session, now):
     return folder[:NOTE_CHARS]
 
 
-def claude_tile(now=None):
-    """(value, state, note): what the running Claude Code sessions are doing.
+def desktop_titles():
+    """{session id: title} for the threads of the Claude desktop app, which names them.
 
-    `note` says which waiting session and what for; the gadget's resting face shows it under
-    "Claude has a question" (the tile `claude.note`, which the gadget does not list).
+    Only the title the app shows in its own list is read, never a conversation. A thread nobody
+    named keeps the app's stock title, which says nothing, so it is left out.
+    """
+    titles = {}
+    pattern = os.path.join(HOME, "Library", "Application Support", "Claude", "claude-code-sessions", "*", "*", "local_*.json")
+    for path in glob.glob(pattern):
+        try:
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(d, dict):
+            continue
+        title = " ".join(str(d.get("title") or "").split())
+        if d.get("cliSessionId") and title and not title.lower().startswith("local session"):
+            titles[str(d["cliSessionId"])] = title
+    return titles
+
+
+def display_name(session, titles):
+    """A session's row on the gadget: the thread's title, or the app and folder where it has none."""
+    title = titles.get(str(session.get("sessionId") or ""))
+    if title:
+        return title[:NAME_CHARS].rstrip(" -_.,:")
+    app = APPS.get(str(session.get("entrypoint") or ""), "Claude")
+    cwd = os.path.normpath(str(session.get("cwd") or ""))
+    folder = "home" if cwd == os.path.normpath(HOME) else os.path.basename(cwd)
+    return ("%s: %s" % (app, folder))[:NAME_CHARS].rstrip(" -_.,:")
+
+
+def claude_tiles(now=None):
+    """The tiles for the running Claude Code sessions, as {id: (label, value, state)}.
+
+    `claude` sums them up. Each session that is working or blocked gets a row of its own under
+    its name (`claude.1` ...), so the gadget says which ones. `claude.note` says where the one
+    that waits on the user is; the gadget shows it under "Claude has a question" and does not
+    list it. Only sessions on this computer are seen: one in the cloud leaves no file here.
     """
     now = time.time() if now is None else now
-    counts = {}
-    waiting_sessions = []
+    seen = 0
+    waiting_sessions, busy_sessions = [], []
     for path in glob.glob(os.path.join(HOME, ".claude", "sessions", "*.json")):
         try:
             with open(path, encoding="utf-8") as f:
@@ -93,23 +131,40 @@ def claude_tile(now=None):
             continue
         if not isinstance(s, dict) or not alive(s.get("pid")):
             continue  # a file left by a session that has gone
+        seen += 1
         status = str(s.get("status") or "idle").lower()
-        counts[status] = counts.get(status, 0) + 1
+        try:
+            since = now - float(s.get("statusUpdatedAt") or 0) / 1000.0
+        except (TypeError, ValueError):
+            since = BUSY_HOLD_S
         if any(w in status for w in ("wait", "permission", "approval", "input")):
             if str(s.get("waitingFor") or "").lower() not in NOT_WAITING:
                 waiting_sessions.append(s)
-    if not counts:
-        return "off", None, ""
-    waiting = len(waiting_sessions)
-    busy = sum(n for k, n in counts.items() if k in ("busy", "working", "running"))
+        elif status in ("busy", "working", "running") or (status == "idle" and 0 <= since < BUSY_HOLD_S):
+            # A session reads idle for a moment between steps: it counts as working a little longer.
+            busy_sessions.append(s)
+    if not seen:
+        return {"claude": ("Claude", "off", None)}
+    tiles = {}
+    titles = desktop_titles() if waiting_sessions or busy_sessions else {}
+    waiting, busy = len(waiting_sessions), len(busy_sessions)
+    # The longest wait first: that is the one to go to.
+    waiting_sessions.sort(key=lambda s: s.get("statusUpdatedAt") or 0)
+    busy_sessions.sort(key=lambda s: str(s.get("sessionId") or s.get("pid") or ""))  # a steady order
     if waiting:
-        # The longest wait first: that is the one to go to.
-        waiting_sessions.sort(key=lambda s: s.get("statusUpdatedAt") or 0)
         head = asks(waiting_sessions[0]) if waiting == 1 else "has %d waiting" % waiting
-        return head, "warn", where(waiting_sessions[0], now)
-    if busy:
-        return ("working" if busy == 1 else "%d working" % busy), "ok", ""
-    return "idle", None, ""
+        tiles["claude"] = ("Claude", head, "warn")
+        first = waiting_sessions[0]
+        named = titles.get(str(first.get("sessionId") or ""))
+        tiles["claude.note"] = ("Claude", display_name(first, titles) if named else where(first, now), None)
+    elif busy:
+        tiles["claude"] = ("Claude", "working" if busy == 1 else "%d working" % busy, "ok")
+    else:
+        tiles["claude"] = ("Claude", "idle", None)
+    rows = [(s, asks(s), "warn") for s in waiting_sessions] + [(s, "working", "ok") for s in busy_sessions]
+    for n, (s, value, state) in enumerate(rows[:SESSION_ROWS], 1):
+        tiles["claude.%d" % n] = (display_name(s, titles), value, state)
+    return tiles
 
 
 def last_task_event(path):
@@ -173,13 +228,8 @@ def main():
     args = ap.parse_args()
 
     now = time.time()
-    value, state, note = claude_tile(now)
-    tiles = {
-        "claude": ("Claude", value, state),
-        "codex": ("ChatGPT Codex",) + codex_tile(now),
-    }
-    if note:
-        tiles["claude.note"] = ("Claude", note, None)
+    tiles = claude_tiles(now)
+    tiles["codex"] = ("ChatGPT Codex",) + codex_tile(now)
     if args.dry_run:
         for name, (label, value, state) in tiles.items():
             print("%-11s %-14s %-26s %s" % (name, label, value, state or "-"))
@@ -191,15 +241,23 @@ def main():
     except (OSError, ValueError):
         last = {}
     changed = False
+    for name in [n for n in last if n not in tiles]:
+        # A session that stopped working or waiting: its row goes now, not when it times out.
+        r = subprocess.run([args.hermes, "gadget", "tile", "clear", name], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.PIPE, timeout=60)
+        if r.returncode != 0:
+            sys.stderr.write("ai_status: clear %s: %s\n" % (name, r.stderr.decode("utf-8", "replace").strip()))
+        del last[name]  # gone either way within its time to live
+        changed = True
     for name, (label, value, state) in tiles.items():
         was = last.get(name)
-        if isinstance(was, list) and was[:2] == [value, state] and len(was) > 2 and 0 <= now - was[2] < REFRESH_S:
+        if isinstance(was, list) and was[:2] == [value, state] and len(was) > 3 and was[3] == label and 0 <= now - was[2] < REFRESH_S:
             continue  # unchanged and set recently
         r = set_tile(args.hermes, name, label, value, state)
         if r.returncode != 0:
             sys.stderr.write("ai_status: %s: %s\n" % (name, r.stderr.decode("utf-8", "replace").strip()))
             continue  # try again next run
-        last[name] = [value, state, now]
+        last[name] = [value, state, now, label]
         changed = True
     if changed:
         os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)

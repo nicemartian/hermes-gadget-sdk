@@ -2610,6 +2610,7 @@ void App::update_model() {
   m.animate = animation_;
   m.progress_permille = -1;
   m.attention.clear();
+  m.notice.clear();
   m.attention_detail.clear();
   m.cheer = cheer_;
   m.chips.clear();
@@ -2937,9 +2938,10 @@ void App::update_model() {
     m.hint = profile_.touch_screen && touch_talk_ ? std::string(tr(tap ? Msg::TapScreenToTalk : Msg::HoldScreenToTalk))
                                    : tr(tap ? Msg::TapButtonToTalk : Msg::HoldButtonToTalk, {talk});
     bool showing_reply = !reply_.empty() && static_cast<int32_t>(reply_until_ - now()) > 0;
-    // The Eyes skin's answer view is text alone: a notice or a flashed hint has no line there, so the
-    // face comes back to carry it, and the answer returns when it clears.
-    if (profile_.skin_eyes && (!notice_.empty() || !hint_flash_.empty())) showing_reply = false;
+    // The Eyes skin's answer view is text alone: a flashed hint has no line there, so the face
+    // comes back to carry it, and the answer returns when it clears.
+    if (profile_.skin_eyes && !hint_flash_.empty()) showing_reply = false;
+    if (profile_.skin_eyes && showing_reply) m.notice = notice_;  // a notice sits under the answer, in a pill
     m.hero = !showing_reply;
     if (m.hero) {
       const bool switching = agent_profiles_.size() > 1;

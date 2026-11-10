@@ -123,6 +123,7 @@ struct UiModel {
   std::string music_at, music_length;
   // A running timer as the Eyes skin's face shows it: the time left ("4:59") and its label.
   std::string timer_text, timer_label;
+  std::string notice;  // Eyes skin, answer view: a notice shown in a pill under the answer
   // The last touch on the resting face: the eyes glance that way. `glance` goes up with each
   // one; the direction is in hundredths of the half panel, right and down positive.
   uint8_t glance = 0;

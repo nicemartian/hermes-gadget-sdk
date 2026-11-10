@@ -715,7 +715,7 @@ void Ui::draw_frame(const UiModel& m) {
 
   if (reply_view(m)) {
     // The Eyes skin's answer view owns the whole UI square: one band, one hash.
-    const uint32_t key = Hash().val(m.screen).add(m.body).val(m.scroll).get();
+    const uint32_t key = Hash().val(m.screen).add(m.body).add(m.notice).val(m.scroll).get();
     if (!valid_ || !reply_valid_ || key != reply_key_) draw_bands(0, h, &Ui::draw_reply, m);
     reply_key_ = key;
     reply_valid_ = true;
@@ -1043,6 +1043,8 @@ bool Ui::reply_view(const UiModel& m) const {
 namespace {
 // The answer view's text: one scale up, with air between the lines.
 int reply_pitch(int s) { return Canvas::line_height(s + 1) + 2 * s; }
+// A notice under the answer: a pill 21s tall whose top is 40s above the square's bottom edge.
+int reply_pill_top(int h, int s) { return h - 40 * s; }
 }  // namespace
 
 int Ui::body_cols(const UiModel& m) const {
@@ -1055,16 +1057,29 @@ void Ui::draw_reply(Canvas& c, const UiModel& m) {
   const int s = layout_.scale, hs = s + 1, w = info_.width, h = info_.height;
   const int pitch = reply_pitch(s), rows = body_rows(m);
   c.fill_rect(0, 0, w, h, bg_);
+  const bool pill = !m.notice.empty();
+  const int pill_y = reply_pill_top(h, s);
   const auto lines = wrap_text(m.body, body_cols(m));
   const int total = static_cast<int>(lines.size());
   const int max_first = std::max(0, total - rows);
   const int first = m.scroll < 0 ? max_first : std::min(m.scroll, max_first);
   const int shown = std::min(rows, total - first);
   // The lines' block sits in the middle of the glass; the larger font's own line is shorter than the pitch.
-  int y = (h - shown * pitch) / 2 + (pitch - Canvas::line_height(hs)) / 2;
+  // With a notice under it, an answer that would reach the pill sits in the rows above it instead.
+  const int room = pill && (h + shown * pitch) / 2 > pill_y - 2 * s ? pill_y : h;
+  int y = (room - shown * pitch) / 2 + (pitch - Canvas::line_height(hs)) / 2;
   for (int i = 0; i < shown; ++i, y += pitch) {
     const std::string& line = lines[static_cast<size_t>(first + i)];
     c.text(std::max(0, (w - Canvas::text_width(line, hs)) / 2), y, line, hs, kText);
+  }
+  if (pill) {  // a dot and one line, as wide as its text within the square
+    const int ph = 21 * s, dot = 3 * s, pad = 9 * s;
+    const std::string text = fit(m.notice, cols_for(w - 12 * s - 2 * pad - 3 * dot, s));
+    const int tw = Canvas::text_width(text, s), pw = std::max(112 * s, tw + 2 * pad + 3 * dot), px = (w - pw) / 2;
+    c.fill_round_rect(px, pill_y, pw, ph, ph / 2, kBar);
+    const int tx = px + (pw - tw - 3 * dot) / 2 + 3 * dot;
+    c.fill_circle(tx - 2 * dot, pill_y + ph / 2, dot, kAccent);
+    c.text(tx, pill_y + (ph - font::kGlyphHeight * s) / 2, text, s, kText);
   }
   if (total > rows) {  // where this page is in the answer: a short mark under the text
     const int track = 24 * s, tx = (w - track) / 2, ty = h - 2 * s;
@@ -1076,7 +1091,10 @@ void Ui::draw_reply(Canvas& c, const UiModel& m) {
 
 int Ui::body_rows(const UiModel& m) const {
   if (panel_view(m) && m.screen == Screen::Card) return skin::view::card_rows();
-  if (reply_view(m)) return std::max(1, (info_.height - 4 * layout_.scale) / reply_pitch(layout_.scale));
+  if (reply_view(m)) {
+    const int room = m.notice.empty() ? info_.height : reply_pill_top(info_.height, layout_.scale);
+    return std::max(1, (room - 4 * layout_.scale) / reply_pitch(layout_.scale));
+  }
   int rows = layout_.body_rows;
   if (m.detail.empty()) return rows;
   int detail = static_cast<int>(wrap_text(m.detail, layout_.body_cols).size());

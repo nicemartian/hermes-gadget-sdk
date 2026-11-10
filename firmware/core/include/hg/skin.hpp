@@ -94,12 +94,6 @@ class Eyes {
   uint32_t eq_key_ = 0;
   int dot_sec_ = -1, dot_y0_ = 0, dot_y1_ = 0;  // the clock's seconds dot on the ring
   uint8_t glance_ = 0;                  // the model's glance count at the last frame
-  // the marks that pulse (someone waits): where each dot is, and the step last drawn
-  struct Pulse {
-    int x, y;
-  };
-  std::vector<Pulse> pulses_;
-  uint32_t pulse_key_ = 0;
   // what is on the panel now
   uint32_t face_key_ = 0, ring_key_ = 0, text_key_ = 0;
   Box face_box_, comet_box_;

@@ -1350,7 +1350,6 @@ void App::h_dashboard(const json::Value& m) {
   const json::Value& tiles = m["tiles"];
   bool status_heading = false;
   std::string attention, attention_id, attention_more;
-  std::vector<UiModel::Chip> chips;
   std::string music_title, music_artist;
   // A tile "<name>.<n>" is a line under the tile "<name>": one of the sessions it sums up.
   auto parent_of = [](const std::string& id) {
@@ -1390,7 +1389,6 @@ void App::h_dashboard(const json::Value& m) {
       rows.push_back(std::move(row));
       continue;
     }
-    if (profile_.skin_eyes) chips.push_back({t["label"].as_string(), tn});
     if (tn == DashRow::Tone::Warn && attention.empty()) {
       attention = value.empty() ? t["label"].as_string() : t["label"].as_string() + " " + value;
       attention_id = t["id"].as_string();
@@ -1401,7 +1399,6 @@ void App::h_dashboard(const json::Value& m) {
     if (!attention.empty() && note.first == attention_id) attention_more = note.second;
   attention_ = std::move(attention);
   attention_detail_ = std::move(attention_more);
-  chips_ = std::move(chips);
   music_title_ = std::move(music_title);
   music_artist_ = std::move(music_artist);
   if (music_title_.empty()) {
@@ -2613,7 +2610,6 @@ void App::update_model() {
   m.notice.clear();
   m.attention_detail.clear();
   m.cheer = cheer_;
-  m.chips.clear();
   m.music_title.clear();
   m.music_artist.clear();
   m.timer_text.clear();
@@ -3013,7 +3009,6 @@ void App::update_model() {
     if (resting) {
       m.attention = waiting;
       m.attention_detail = attention_detail_;
-      m.chips = chips_;
       m.music_title = music_title_;
       m.music_artist = music_artist_;
       if (m.screen == Screen::Clock) music_open_ = false;  // rest closes it

@@ -108,13 +108,7 @@ struct UiModel {
   // and a count that goes up each time something went well (the eyes smile for a moment).
   std::string attention, attention_detail;  // the second line: where, and what for
   uint8_t cheer = 0;
-  // The Eyes skin's resting and clock faces: who else is at work, as small marks ("Claude",
-  // "ChatGPT") in each one's colour, and what is playing (empty: nothing).
-  struct Chip {
-    std::string label;
-    DashRow::Tone tone = DashRow::Tone::Dim;
-  };
-  std::vector<Chip> chips;
+  // The Eyes skin's resting and clock faces: what is playing (empty: nothing).
   std::string music_title, music_artist;
   // The Eyes skin's now playing screen (a tap on what is playing opens it): how far the track
   // is, in thousandths (-1: unknown), and the two times under it ("1:42", "4:28").

@@ -844,7 +844,6 @@ class App {
   uint32_t music_pos_s_ = 0, music_len_s_ = 0, music_pos_at_ = 0, music_step_ = 0;
   uint8_t glance_ = 0;
   int8_t glance_x_ = 0, glance_y_ = 0;
-  std::vector<UiModel::Chip> chips_;              // the status tiles as the faces' marks
   std::string music_title_, music_artist_;         // the tile "music": label and value
   std::string attention_, attention_detail_;  // the first warning tile: "Claude needs you", and the "<name>.note" tile's value
   uint32_t prompt_until_ = 0;  // 0 = until answered or withdrawn

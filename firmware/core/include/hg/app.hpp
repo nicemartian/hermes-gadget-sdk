@@ -772,6 +772,7 @@ class App {
   uint32_t last_turn_rx_ = 0;
   std::string reply_;
   bool reply_shown_ = false;  // the whole text, not the caption, until the Responding screen ends
+  bool reply_spoke_ = false;  // this reply's audio has started (the Eyes skin holds the text back for it)
   // The talking face's caption, and the text and width it was wrapped from: rewrapped only when they change.
   std::string caption_, caption_text_;
   int caption_cols_ = 0;

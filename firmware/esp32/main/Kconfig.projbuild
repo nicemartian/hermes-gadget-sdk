@@ -56,6 +56,15 @@ menu "Hermes Gadget"
             takes effect on a round panel whose framebuffer holds every row.
             Adds about 100 KB of flash for the font.
 
+    config HG_SPEAKER_LEAD_MS
+        int "Silence played before a reply's first sample (ms)"
+        default 0
+        range 0 2000
+        help
+            A codec and amplifier that power down between replies can swallow
+            the first word of the next one. This much silence is played into
+            them first. Codec speakers only.
+
     config HG_FRAME_STATS
         bool "Time every frame from boot"
         default n

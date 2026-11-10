@@ -465,6 +465,21 @@ void CodecSpeaker::task(void* arg) {
         vTaskDelay(pdMS_TO_TICKS(20));  // PA settles while the DAC is still muted
       }
       esp_codec_dev_set_out_mute(self->dev_, false);
+#if CONFIG_HG_SPEAKER_LEAD_MS > 0
+      // The DAC and the amplifier take longer to come up from cold than the settle above, and a
+      // TTS voice starts on its first word: play silence into them first, so no word is lost.
+      {
+        static const int16_t quiet[CodecAudio::kRate / 50] = {};  // 20 ms
+        for (int ms = 0; ms < CONFIG_HG_SPEAKER_LEAD_MS && !self->flush_; ms += 20) {
+          if (self->stereo32_) {
+            hg::ws185_stereo32(quiet, self->stereo_, sizeof(quiet) / sizeof(int16_t));
+            esp_codec_dev_write(self->dev_, self->stereo_, static_cast<int>(sizeof(quiet) * 4));
+          } else {
+            esp_codec_dev_write(self->dev_, const_cast<int16_t*>(quiet), static_cast<int>(sizeof(quiet)));
+          }
+        }
+      }
+#endif
       playing = true;
     } else if (pa && !pa->enable(generation)) {
       continue;  // a chunk taken before an abort(): drop it rather than play it

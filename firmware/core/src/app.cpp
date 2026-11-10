@@ -50,6 +50,7 @@ constexpr uint32_t kConnectTimeoutMs = 10000;
 constexpr uint32_t kHandshakeTimeoutMs = 10000;
 constexpr uint32_t kStableSessionMs = 30000;
 constexpr uint32_t kMinUtteranceMs = 350;
+constexpr uint32_t kVoiceWaitMs = 3000;  // Eyes skin: how long a reply's text waits for its voice
 constexpr uint32_t kThinkingTimeoutMs = 180000;  // no word from Hermes after a request
 constexpr uint32_t kTurnTimeoutMs = 30 * 60000;   // ...once its turn.start says it is working
 constexpr uint32_t kSettleAfterReplyMs = 6000;
@@ -2442,6 +2443,7 @@ void App::update_model() {
   // A recording held through a lost connection keeps its screen over the connecting ones.
   const bool held = recording_held() && (mode_ == Mode::Listening || mode_ == Mode::Thinking);
   if (mode_ != Mode::Responding) reply_shown_ = false;
+  if (mode_ != Mode::Responding) reply_spoke_ = false;
   m.title = name_;
   m.lang = lang_;
   m.code.clear();
@@ -2744,6 +2746,15 @@ void App::update_model() {
     m.hint = profile_.touch_screen && touch_talk_ ? std::string(tr(Msg::HoldToReply)) : tr(Msg::ButtonToReply, {talk});
     // Spoken audio can start before the text arrives: let the mascot talk meanwhile.
     m.hero = reply_.empty();
+    // The Eyes skin shows the face while a reply is spoken and its text after. The text often
+    // arrives a second or two before the voice: hold it back that long, so the face does not
+    // flash text first. A reply with no voice shows its text when the wait runs out.
+    if (m.speaking) reply_spoke_ = true;
+    if (profile_.skin_eyes && !m.speaking && !reply_spoke_ && !reply_shown_ && !reply_.empty() &&
+        now() - mode_since_ < kVoiceWaitMs) {
+      m.hero = true;
+      m.detail.clear();
+    }
     // While it is spoken, the face talks over the reply's latest two lines, where they fit.
     if (m.speaking && !reply_shown_ && ui_ && ui_->talk_caption_fits()) {
       m.hero = true;

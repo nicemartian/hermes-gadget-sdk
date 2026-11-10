@@ -39,3 +39,5 @@ CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 CONFIG_HG_SKIN_EYES=y
 # Its image needs more than the stock 1.9 MB slot leaves free: 4 MB slots on this 32 MB board.
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_eyes_32mb.csv"
+# The first word of each spoken reply was lost while the ES8311 and the amplifier woke.
+CONFIG_HG_SPEAKER_LEAD_MS=400

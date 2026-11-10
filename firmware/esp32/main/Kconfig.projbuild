@@ -56,6 +56,14 @@ menu "Hermes Gadget"
             takes effect on a round panel whose framebuffer holds every row.
             Adds about 100 KB of flash for the font.
 
+    config HG_SWAP_KEYS
+        bool "Swap the TALK key and the power key"
+        default n
+        help
+            The power key's short press starts a recording (a pause or a second
+            press sends it) and the TALK key darkens the screen or goes Back.
+            A long hold of the power key stays the power chip's own.
+
     config HG_SPEAKER_LEAD_MS
         int "Silence played before a reply's first sample (ms)"
         default 0

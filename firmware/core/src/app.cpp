@@ -1504,6 +1504,10 @@ void App::on_button(Button button, bool pressed, bool touch) {
     if (button == Button::Cancel && !pressed) close_phone_pairing();
     return;
   }
+  if (profile_.swap_keys && button == Button::Talk && !touch) {  // the key does the power key's job
+    if (pressed) on_power_key();
+    return;
+  }
   const auto bit = static_cast<uint8_t>(1u << static_cast<unsigned>(button));
   // A double press of the TALK key goes home. Nothing waits for it: the first press does what it
   // always does, and the second, if it comes in time, undoes that and leaves. A press that only

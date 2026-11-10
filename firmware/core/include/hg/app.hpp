@@ -75,6 +75,9 @@ struct DeviceProfile {
   bool skin_eyes = false;
   // A press shorter than this is dropped as a slip rather than sent as a recording (0: the default).
   uint32_t min_utterance_ms = 0;
+  // The TALK key and the power key trade jobs: the power key's short press starts a hands-free
+  // recording (and a second one sends it), and the TALK key darkens the screen or goes Back.
+  bool swap_keys = false;
   uint32_t frame_budget_us = FrameStats::kDefaultBudgetUs;
   uint32_t frame_log_ms = 10000;
   // Room for a face from Hermes (docs/protocol.md#faces): about 27 KB, and its message at once.
@@ -256,6 +259,7 @@ class App {
   // the settings menu it is Back: the menu closes and the screen stays lit.
   // Wi-Fi and the Hermes connection stay up.
   void on_power_key();
+  void power_key_talk();  // DeviceProfile::swap_keys: the power key's short press, as TALK
   // Dozing (System::set_dozing): the port's loop may wait this long for events.
   static constexpr uint32_t kDozeWaitMs = 100;
   // The longest recording; the recording buffer holds this much (RecordingBuffer::bytes_for).

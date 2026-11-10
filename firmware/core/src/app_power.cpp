@@ -96,6 +96,23 @@ void App::set_dozing(bool dozing) {
   if (hal_.system) hal_.system->set_dozing(dozing);
 }
 
+// The power key reports only short presses, never a hold, so as TALK it works like tap-to-talk:
+// a press starts a hands-free recording, which a pause in speech or a second press sends.
+void App::power_key_talk() {
+  if (wake_display()) return;  // the press that lights the screen does nothing else
+  close_notices_for_input();
+  if (mode_ == Mode::Listening) {
+    finish_listening();
+    return;
+  }
+  if (settings_open() || prompt_showing() || alarm_) {  // select, "yes", or silence the alarm, as a tap would
+    on_button(Button::Talk, true, true);
+    on_button(Button::Talk, false, true);
+    return;
+  }
+  if (can_talk()) start_listening(true);
+}
+
 void App::on_power_key() {
   if (!hal_.display || !hal_.display->info().has_backlight) return;
   // Turning the screen off is an answer to what was on it, before anything closes: a reply
@@ -326,7 +343,10 @@ void App::power_tick() {
   constexpr uint32_t kPowerKeyPollMs = 100;
   if (hal_.power && now() - power_key_polled_at_ >= kPowerKeyPollMs) {
     power_key_polled_at_ = now();
-    if (hal_.power->take_key_press()) on_power_key();
+    if (hal_.power->take_key_press()) {
+      if (profile_.swap_keys) power_key_talk();
+      else on_power_key();
+    }
     // Dozing needs the battery to be the only supply; check as often as the key
     // while the screen is dark, so plugging in ends a doze within ~100 ms.
     if (display_sleeping_) {

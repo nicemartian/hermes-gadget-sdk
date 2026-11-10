@@ -41,3 +41,5 @@ CONFIG_HG_SKIN_EYES=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_eyes_32mb.csv"
 # The first word of each spoken reply was lost while the ES8311 and the amplifier woke.
 CONFIG_HG_SPEAKER_LEAD_MS=400
+# PWR talks, BOOT darkens the screen and goes Back.
+CONFIG_HG_SWAP_KEYS=y

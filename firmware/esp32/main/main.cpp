@@ -568,6 +568,9 @@ extern "C" void app_main(void) {
   profile.skin_eyes = true;
   profile.min_utterance_ms = 800;  // a stray half-second tap interrupted the reply in progress
 #endif
+#if CONFIG_HG_SWAP_KEYS
+  profile.swap_keys = board.axp_power_key || board.pwr_key.enabled;
+#endif
   profile.frame_budget_us = CONFIG_HG_FRAME_BUDGET_US;
   profile.frame_log_ms = CONFIG_HG_FRAME_LOG_S * 1000u;
   profile.default_name = CONFIG_HG_DEFAULT_NAME;

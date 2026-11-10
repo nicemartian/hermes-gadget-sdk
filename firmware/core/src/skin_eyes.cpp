@@ -34,9 +34,6 @@ struct Target {
 };
 
 Target target_for(const UiModel& m, bool sleepy, bool attention) {
-  if (m.screen == Screen::Ready && m.meeting && !attention) {  // in a meeting: rose, and it stays awake
-    return {kRose, 46, 74, 112, 205};
-  }
   if (sleepy) return {Rgb{150, 115, 63}, 46, 26, 112, 214};  // lids half down, dimmer
   if (attention) return {kGold, 54, 86, 120, 200};          // wide open
   switch (m.screen) {
@@ -398,12 +395,6 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     if (ring == Ring::Pulse) key = mix(key, static_cast<uint32_t>(level_ * 200));
     if (ring == Ring::Comet || ring == Ring::Ticks) key = mix(key, m.fine);
     // Something waits on the user: the still ring breathes, a few steps a second.
-    // The day ring: the meetings to come on a twelve hour dial, and where now is on it.
-    const bool day = ring == Ring::Still && ready && m.day_now >= 0;
-    if (day) {
-      key = mix(key, static_cast<uint32_t>(m.day_now));
-      for (const auto& arc : m.day_arcs) key = mix(key, (uint32_t(arc.first) << 12) | arc.second);
-    }
     const bool breathe = attention && ring == Ring::Still;
     const float breath = breathe ? 0.5f - 0.5f * std::cos(t * 2.2f) : 0.0f;
     if (breathe) key = mix(key, static_cast<uint32_t>(breath * 10));
@@ -441,28 +432,10 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
             const int16_t* b = &band_[static_cast<size_t>(y) * 4];
             for (int run = 0; run < 2; ++run)
               for (int x = b[run * 2]; x < b[run * 2 + 1]; ++x) {
-                const float px = x + 0.5f - C, py = y + 0.5f - cy;
-                const float dist = std::hypot(px, py);
-                const float d = std::fabs(dist - rr) - half;
-                float a = clamp01(0.5f - d) * alpha;
-                if (day && std::fabs(dist - rr) < 5.0f) {
-                  // This pixel's place on the dial, in minutes clockwise from 12.
-                  float minute = std::atan2(px, -py) * (360.0f / kPi);
-                  if (minute < 0) minute += 720;
-                  for (const auto& arc : m.day_arcs) {
-                    const float from = static_cast<float>(std::max<int>(arc.first, m.day_now) % 720);
-                    const float span = static_cast<float>(arc.second - std::max<int>(arc.first, m.day_now));
-                    float off = minute - from;
-                    if (off < 0) off += 720;
-                    if (off <= span) a = std::max(a, clamp01(0.5f - (std::fabs(dist - rr) - 3.0f)) * 0.95f);
-                  }
-                }
-                if (a > 0) s.add(x, y, acc, static_cast<int>(a * 255));
+                const float d = std::fabs(std::hypot(x + 0.5f - C, y + 0.5f - cy) - rr) - half;
+                const float a = clamp01(0.5f - d);
+                if (a > 0) s.add(x, y, acc, static_cast<int>(a * alpha * 255));
               }
-          }
-          if (day) {  // now: a white dot on the dial
-            const float at = (m.day_now % 720) * (kPi / 360.0f);
-            disc(s, C + std::sin(at) * rr, cy - std::cos(at) * rr, 5.0f, kWhite, 0.95f, 6);
           }
         } else if (ring == Ring::Pulse) {
           const float rr = R - 14.0f, half = (4 + 8 * level_) / 2, glow = 8 + 12 * level_, alpha = 0.6f + 0.4f * level_;

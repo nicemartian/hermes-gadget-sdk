@@ -18,7 +18,6 @@ struct Rgb {
   uint8_t r, g, b;
 };
 inline constexpr Rgb kGold{255, 196, 107}, kCyan{107, 228, 255}, kViolet{165, 139, 255};
-inline constexpr Rgb kRose{255, 120, 165};
 inline constexpr Rgb kFg{236, 232, 241}, kMuted{143, 136, 156}, kWhite{255, 255, 255};
 
 struct Surface {

@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include "hg/canvas.hpp"
@@ -108,12 +107,6 @@ struct UiModel {
   // and a count that goes up each time something went well (the eyes smile for a moment).
   std::string attention, attention_detail;  // the second line: where, and what for
   uint8_t cheer = 0;
-  // The Eyes skin's day ring: the edge as a 12 hour dial. `day_now` is the minute of the day
-  // (-1: no clock, no ring), `day_arcs` the meetings from now on as (start, end) minutes from
-  // midnight, and `meeting` whether one is on now (the eyes change colour).
-  int16_t day_now = -1;
-  std::vector<std::pair<uint16_t, uint16_t>> day_arcs;
-  bool meeting = false;
   // Show the mascot as large as fits, with headline/detail as a caption,
   // instead of the header + text layout.
   bool hero = false;

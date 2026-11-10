@@ -40,37 +40,47 @@ def alive(pid):
         return False
 
 
-WAITING_FOR = {"dialog open": "dialog", "input needed": "question", "sandbox request": "permission",
-               "goal proposal": "proposal"}
+# What a session is blocked on, as the gadget says it after "Claude": the headline is
+# "Claude has a question". An open menu (/hooks, /permissions, a picker) is the user's own
+# doing, not Claude asking for anything, so it does not count as waiting.
+ASKS = {"input needed": "has a question", "sandbox request": "wants approval",
+        "goal proposal": "has a proposal"}
+NOT_WAITING = ("dialog open",)
 APPS = {"cli": "Terminal", "claude-desktop": "Claude app"}
 NOTE_CHARS = 26
 
 
+def asks(session):
+    what = str(session.get("waitingFor") or "").lower()
+    if what in ASKS:
+        return ASKS[what]
+    return "wants approval" if any(w in what for w in ("permission", "approv", "tool")) else "needs you"
+
+
 def where(session, now):
-    """A waiting session in a few words: what it waits on, the app, the folder and for how long."""
-    what = WAITING_FOR.get(str(session.get("waitingFor") or "").lower(), "waiting")
+    """Where a waiting session is, in a few words: the app, the folder and for how long."""
     app = APPS.get(str(session.get("entrypoint") or ""), "")
     cwd = os.path.normpath(str(session.get("cwd") or ""))
-    folder = "home" if cwd == os.path.normpath(HOME) else os.path.basename(cwd)
+    folder = "home folder" if cwd == os.path.normpath(HOME) else os.path.basename(cwd)
     try:
         minutes = int((now * 1000 - float(session.get("statusUpdatedAt") or 0)) / 60000)
     except (TypeError, ValueError):
         minutes = 0
-    age = "%dm" % minutes if 2 <= minutes < 600 else ""
-    # The gadget's line holds about 26 characters: the app goes first when it is too long, then the folder is cut.
-    for parts in ([what, app, folder, age], [what, folder, age]):
+    age = "%d min" % minutes if 2 <= minutes < 600 else ""
+    # The gadget's line holds about 26 characters. The folder says which session it is, so the
+    # age goes first when it is too long, then the app, and only then is the folder cut.
+    for parts in ((app, folder, age), (app, folder), (folder, age), (folder,)):
         text = ", ".join(p for p in parts if p)
         if len(text) <= NOTE_CHARS:
             return text
-    room = NOTE_CHARS - len(", ".join(p for p in (what, age) if p)) - 2
-    return ", ".join(p for p in (what, folder[:max(4, room)], age) if p)[:NOTE_CHARS]
+    return folder[:NOTE_CHARS]
 
 
 def claude_tile(now=None):
     """(value, state, note): what the running Claude Code sessions are doing.
 
     `note` says which waiting session and what for; the gadget's resting face shows it under
-    "Claude needs you" (the tile `claude.note`, which the gadget does not list).
+    "Claude has a question" (the tile `claude.note`, which the gadget does not list).
     """
     now = time.time() if now is None else now
     counts = {}
@@ -86,7 +96,8 @@ def claude_tile(now=None):
         status = str(s.get("status") or "idle").lower()
         counts[status] = counts.get(status, 0) + 1
         if any(w in status for w in ("wait", "permission", "approval", "input")):
-            waiting_sessions.append(s)
+            if str(s.get("waitingFor") or "").lower() not in NOT_WAITING:
+                waiting_sessions.append(s)
     if not counts:
         return "off", None, ""
     waiting = len(waiting_sessions)
@@ -94,7 +105,7 @@ def claude_tile(now=None):
     if waiting:
         # The longest wait first: that is the one to go to.
         waiting_sessions.sort(key=lambda s: s.get("statusUpdatedAt") or 0)
-        head = "needs you" if waiting == 1 else "%d need you" % waiting
+        head = asks(waiting_sessions[0]) if waiting == 1 else "has %d waiting" % waiting
         return head, "warn", where(waiting_sessions[0], now)
     if busy:
         return ("working" if busy == 1 else "%d working" % busy), "ok", ""

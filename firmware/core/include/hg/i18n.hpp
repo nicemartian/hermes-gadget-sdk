@@ -238,8 +238,6 @@ namespace hg::i18n {
   X(HermesWaiting,          "Hermes is waiting for you") \
   X(AnsweredYes,            "Answered: yes") \
   X(AnsweredNo,             "Answered: no") \
-  X(MeetingUntil,           "{0} until {1}") \
-  X(MeetingNext,            "{0} in {1} min") \
   X(Yes,                    "Yes") \
   X(No,                     "No") \
   X(Back,                   "Back") \

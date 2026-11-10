@@ -1441,6 +1441,12 @@ bool App::prompt_armed(uint32_t pressed_at) const {
 
 void App::answer_prompt(bool yes) {
   if (prompt_id_.empty()) return;
+  // The Eyes skin shows a question in full or says it cannot: one it cannot show whole is not
+  // agreed to from here, by a button either. Refusing it stays possible.
+  if (yes && profile_.skin_eyes && ui_ && !ui_->prompt_whole(model_)) {
+    set_hint_flash(tr(i18n::Msg::AnswerElsewhere));
+    return;
+  }
   json::Value reply = proto::message("prompt.reply");
   reply.set("id", prompt_id_).set("answer", yes ? "yes" : "no");
   send(reply);
@@ -1454,6 +1460,16 @@ void App::prompt_tap(int x, int y) {
   const int hit = ui_->prompt_hit(model_, x, y);
   if (hit && prompt_armed(now())) answer_prompt(hit > 0);
   update_model();
+}
+
+void App::view_action() {
+  // The offline screen's button: settings, at Wi-Fi setup where this board has it.
+  if (settings_open() || !open_settings()) return;
+  if (menu_offered(Menu::WifiSetup)) {
+    menu_ = Menu::WifiSetup;
+    settings_follow_ = true;
+    update_model();
+  }
 }
 
 void App::clear_prompt() {
@@ -2709,6 +2725,10 @@ void App::update_model() {
     if (profile_.has_cancel_button)
       m.no = profile_.touch_screen ? std::string(tr(Msg::SwipeNo)) : tr(Msg::ButtonNo, {cancel});
     m.hint = tr(Msg::HermesWaiting);
+    if (profile_.skin_eyes && prompt_until_ && prompt_until_ != prompt_since_) {  // the time left, on the edge ring
+      const uint32_t all = prompt_until_ - prompt_since_, left = static_cast<int32_t>(prompt_until_ - now()) > 0 ? prompt_until_ - now() : 0;
+      m.progress_permille = static_cast<int16_t>(std::min<uint64_t>(1000, static_cast<uint64_t>(left) * 1000 / all));
+    }
   } else if (overlay_ == Overlay::Image) {
     m.screen = Screen::Image;
     m.headline = tr(Msg::Image);

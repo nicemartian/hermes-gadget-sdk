@@ -257,6 +257,9 @@ class App {
   // The Eyes skin's question has two buttons: a tap answers only on one of them, never elsewhere.
   bool prompt_buttons() const { return profile_.skin_eyes && profile_.touch_screen && prompt_showing(); }
   void prompt_tap(int x, int y);
+  // A tap on one of the Eyes skin's own screens: 1 on its way back, 2 on its own button (view_action), else 0.
+  int view_hit(int x, int y) const { return ui_ && profile_.skin_eyes ? ui_->view_hit(model_, x, y) : 0; }
+  void view_action();
   std::string agent_profile_name() const;
   // Returns true when this input only wakes a sleeping display.
   bool wake_display();

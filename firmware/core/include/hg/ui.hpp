@@ -251,6 +251,12 @@ class Ui {
   int profile_thumb_px(int cap) const;
   // A question's answer under a touch: +1 yes, -1 no, 0 neither (a finger's margin around the buttons).
   int prompt_hit(const UiModel& m, int x, int y) const;
+  // The Eyes skin's whole-panel screens (skin::view): whether this model is one, what a tap at
+  // panel (x, y) lands on besides a question's answers (0 nothing, 1 the way back, 2 the screen's
+  // own button), and whether a question's text is on the glass in full.
+  bool panel_view(const UiModel& m) const;
+  int view_hit(const UiModel& m, int x, int y) const;
+  bool prompt_whole(const UiModel& m) const;
   bool title_hit(int x, int y) const {
     const int left = ox_ + (info_.width - layout_.title_w) / 2;
     // The Eyes skin's target reaches up to the glass edge and a little under the band: a finger
@@ -337,6 +343,7 @@ class Ui {
   void draw_clock(const UiModel& m);
   void draw_battery_face(const UiModel& m);  // LowBattery, Charging, Charged
   void draw_skin(const UiModel& m);
+  void draw_view(const UiModel& m);
   Display& display_;
   DisplayInfo panel_;
   DisplayInfo info_;
@@ -384,7 +391,7 @@ class Ui {
   // The screen that owns the whole panel right now, and the hash of what it drew.
   // Leaving it repaints everything (draw_frame); each face repaints when the flag
   // is not itself, so Clock -> Alarm -> Clock in one minute still redraws.
-  enum class FullFace : uint8_t { None, Alarm, Clock, Battery, Skin };
+  enum class FullFace : uint8_t { None, Alarm, Clock, Battery, Skin, View };
   FullFace full_face_ = FullFace::None;
   bool skin_on_ = false;
   skin::Eyes eyes_;

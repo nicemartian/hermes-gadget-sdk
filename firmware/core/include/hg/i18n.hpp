@@ -238,6 +238,11 @@ namespace hg::i18n {
   X(HermesWaiting,          "Hermes is waiting for you") \
   X(AnsweredYes,            "Answered: yes") \
   X(AnsweredNo,             "Answered: no") \
+  X(Yes,                    "Yes") \
+  X(No,                     "No") \
+  X(Back,                   "Back") \
+  X(TooLongToShow,          "Can't show all of this") \
+  X(AnswerElsewhere,        "Too long: answer on the computer") \
   X(Image,                  "Image") \
   /* Ready screen */ \
   X(Ready,                  "Ready") \

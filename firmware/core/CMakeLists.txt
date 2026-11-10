@@ -24,6 +24,7 @@ set(HG_CORE_SOURCES
     src/tones.cpp
     src/touch.cpp
     src/skin_eyes.cpp
+    src/skin_views.cpp
     src/skin_font_data.cpp
     src/ui.cpp
     src/vad.cpp

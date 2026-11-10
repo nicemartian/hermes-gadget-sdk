@@ -212,6 +212,7 @@ EdgeRing edge_ring(const UiModel& m) {
         return r;
       }
       break;
+    case Screen::Prompt:  // the time left to answer, where the app says (the Eyes skin)
     case Screen::Updating:
       if (m.progress_permille >= 0) {
         level(m.progress_permille, kAccent, kAccentDim);
@@ -487,6 +488,31 @@ void Ui::draw_skin(const UiModel& m) {
     send(r.y0, r.y1);
 }
 
+bool Ui::panel_view(const UiModel& m) const { return skin_on_ && skin::view::wants(m); }
+
+int Ui::view_hit(const UiModel& m, int x, int y) const {
+  if (!panel_view(m)) return 0;
+  switch (skin::view::hit(m, x, y, panel_.width, panel_.height)) {
+    case skin::view::Hit::Back: return 1;
+    case skin::view::Hit::Action: return 2;
+    default: return 0;
+  }
+}
+
+bool Ui::prompt_whole(const UiModel& m) const { return !panel_view(m) || m.screen != Screen::Prompt || skin::view::ask_whole(m); }
+
+void Ui::draw_view(const UiModel& m) {
+  // One picture per model, like the clock face: the edge ring goes over it with each push.
+  const uint32_t key = skin::view::key(m);
+  if (valid_ && full_face_ == FullFace::View && key == face_hash_) return;
+  full_face_ = FullFace::View;
+  face_hash_ = key;
+  valid_ = true;
+  each_window(0, panel_.height, [&](int, int) {
+    skin::view::draw(m, display_.framebuffer(), panel_.width, panel_.height, panel_.swap_bytes);
+  });
+}
+
 Canvas Ui::canvas() {
   // UI row y is panel row y + oy_. The framebuffer holds panel rows starting at
   // frame_origin_, so row y lives at buffer row y + oy_ - frame_origin_, which is
@@ -610,6 +636,11 @@ void Ui::draw_frame(const UiModel& m) {
   set_ring(ring);
   if (skin) {
     draw_skin(m);
+    return;
+  }
+  if (panel_view(m)) {
+    draw_view(m);
+    if (ring_moved) update_ring(moved);
     return;
   }
   if (m.screen == Screen::Alarm) {
@@ -1009,6 +1040,7 @@ int reply_pitch(int s) { return Canvas::line_height(s + 1) + 2 * s; }
 }  // namespace
 
 int Ui::body_cols(const UiModel& m) const {
+  if (panel_view(m) && m.screen == Screen::Card) return skin::view::card_cols();
   // One column short: the wrap measures in the body font's widths, the larger font's run a little wider.
   return reply_view(m) ? std::max(4, cols_for(info_.width - 8 * layout_.scale, layout_.scale + 1) - 1) : layout_.body_cols;
 }
@@ -1037,6 +1069,7 @@ void Ui::draw_reply(Canvas& c, const UiModel& m) {
 }
 
 int Ui::body_rows(const UiModel& m) const {
+  if (panel_view(m) && m.screen == Screen::Card) return skin::view::card_rows();
   if (reply_view(m)) return std::max(1, (info_.height - 4 * layout_.scale) / reply_pitch(layout_.scale));
   int rows = layout_.body_rows;
   if (m.detail.empty()) return rows;
@@ -1185,6 +1218,10 @@ int Ui::name_marker_x() const {
 
 int Ui::prompt_hit(const UiModel& m, int x, int y) const {
   if (m.yes.empty() && m.no.empty()) return 0;
+  if (panel_view(m)) {
+    const skin::view::Hit hit = skin::view::hit(m, x, y, panel_.width, panel_.height);
+    return hit == skin::view::Hit::Yes ? 1 : hit == skin::view::Hit::No ? -1 : 0;
+  }
   const int s = layout_.scale, bh = Canvas::line_height(s) + 4 * s, pad = 8 * s;
   const HeroGeom g = hero_geom(m);
   x -= ox_;

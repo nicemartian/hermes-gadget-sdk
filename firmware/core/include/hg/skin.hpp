@@ -92,5 +92,21 @@ class Eyes {
   int band_w_ = 0;
 };
 
+// The skin's whole-panel screens besides the face (skin_views.cpp): a question with Yes and No
+// buttons, a card with a way back, and the offline screen.
+namespace view {
+bool wants(const UiModel& m);
+uint32_t key(const UiModel& m);  // changes whenever the picture does
+void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap);  // the whole panel
+enum class Hit : uint8_t { None, Yes, No, Back, Action };
+Hit hit(const UiModel& m, int x, int y, int w, int h);  // panel coordinates
+// Whether the question's text is on the glass in full. A question that is not can be refused
+// from the device but not agreed to.
+bool ask_whole(const UiModel& m);
+// A long card's text: the columns it wraps to and the lines a page holds.
+int card_cols();
+int card_rows();
+}  // namespace view
+
 }  // namespace skin
 }  // namespace hg

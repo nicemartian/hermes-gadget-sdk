@@ -225,6 +225,11 @@ const Entry kSpanish[] = {
     {Msg::HermesWaiting, "Hermes espera tu respuesta"},
     {Msg::AnsweredYes, "Respondiste: sí"},
     {Msg::AnsweredNo, "Respondiste: no"},
+    {Msg::Yes, "Sí"},
+    {Msg::No, "No"},
+    {Msg::Back, "Atrás"},
+    {Msg::TooLongToShow, "No cabe entero"},
+    {Msg::AnswerElsewhere, "Muy largo: responde en el ordenador"},
     {Msg::Image, "Imagen"},
     // Ready screen
     {Msg::Ready, "Listo"},

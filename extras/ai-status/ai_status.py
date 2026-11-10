@@ -49,7 +49,7 @@ NOT_WAITING = ("dialog open",)
 APPS = {"cli": "Terminal", "claude-desktop": "Claude app"}
 NOTE_CHARS = 26
 NAME_CHARS = 26     # what the gadget takes for a row's name; it cuts it to fit beside "working"
-SESSION_ROWS = 3    # the gadget holds eight tiles at most: these, claude, its note, codex and music
+SESSION_ROWS = 2    # the gadget holds eight tiles at most: these, claude, its note, codex, music and its position
 BUSY_HOLD_S = 45
 
 
@@ -231,7 +231,7 @@ MUSIC_RETRY_S = 300  # after Spotify did not answer, it is left alone this long
 
 
 def music_tile(last, now):
-    """(title, artist, None) for what Spotify is playing on this Mac, or None.
+    """((title, artist, None), "seconds in/seconds long") for what Spotify plays on this Mac, or None.
 
     Spotify is asked only while it is already running, so this never starts it. The first time,
     macOS asks whether this script may control Spotify; until that is answered the call hangs,
@@ -249,7 +249,8 @@ def music_tile(last, now):
         if subprocess.run(["pgrep", "-xq", "Spotify"], timeout=5).returncode != 0:
             return None
         script = ('tell application "Spotify" to if player state is playing then '
-                  'return (name of current track) & "\n" & (artist of current track)')
+                  'return (name of current track) & "\n" & (artist of current track) & "\n" & '
+                  '((player position) as integer) & "\n" & (((duration of current track) / 1000) as integer)')
         r = subprocess.run(["osascript", "-e", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=4)
         if r.returncode != 0:  # most often -1743: this script may not control Spotify
             why = r.stderr.decode("utf-8", "replace").strip()[:200] or "osascript failed"
@@ -261,11 +262,32 @@ def music_tile(last, now):
         sys.stderr.write("ai_status: spotify: %s (next try in %d s)\n" % (why, MUSIC_RETRY_S))
         last["_music_retry_at"] = now + MUSIC_RETRY_S
         return None
-    title, _, artist = r.stdout.decode("utf-8", "replace").strip().partition("\n")
-    title, artist = " ".join(title.split()), " ".join(artist.split())
+    parts = (r.stdout.decode("utf-8", "replace").strip().split("\n") + ["", "", ""])[:4]
+    title, artist = " ".join(parts[0].split()), " ".join(parts[1].split())
     if not title:
         return None
-    return (title[:NAME_CHARS].rstrip(), artist[:NAME_CHARS].rstrip() or "Spotify", None)
+    try:
+        where = "%d/%d" % (int(parts[2]), int(parts[3]))
+    except ValueError:
+        where = ""
+    return (title[:NAME_CHARS].rstrip(), artist[:NAME_CHARS].rstrip() or "Spotify", None), where
+
+
+EVENTS = {"music.toggle": "playpause", "music.next": "next track", "music.previous": "previous track"}
+
+
+def music_event(name):
+    """A button on the gadget's now playing screen (the plugin's `event_hook` runs this)."""
+    command = EVENTS.get(name)
+    if not command or sys.platform != "darwin":
+        return 0
+    try:
+        if subprocess.run(["pgrep", "-xq", "Spotify"], timeout=5).returncode == 0:
+            subprocess.run(["osascript", "-e", 'tell application "Spotify" to ' + command], timeout=8,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return 1
+    return 0
 
 
 def set_tile(hermes, name, label, value, state):
@@ -279,7 +301,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dry-run", action="store_true", help="print the tiles, set nothing")
     ap.add_argument("--hermes", default=shutil.which("hermes") or os.path.join(HOME, ".local", "bin", "hermes"))
+    ap.add_argument("--event", nargs="+", metavar="NAME", help="act on a gadget event (music.toggle, music.next, music.previous)")
     args = ap.parse_args()
+    if args.event:
+        return music_event(args.event[0])
 
     now = time.time()
     tiles = claude_tiles(now)
@@ -297,7 +322,9 @@ def main():
     retry_was = last.get("_music_retry_at")
     song = music_tile(last, now)
     if song:
-        tiles["music"] = song
+        tiles["music"] = song[0]
+        if song[1]:
+            tiles["music.pos"] = ("Music", song[1], None)
     changed = last.get("_music_retry_at") != retry_was
     for name in [n for n in last if n not in tiles and not n.startswith("_")]:
         # A session that stopped working or waiting: its row goes now, not when it times out.

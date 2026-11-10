@@ -19,8 +19,8 @@ bool TouchGestures::view_tap() {
   if (hit == 1) {
     press(Button::Cancel);
     release(Button::Cancel);
-  } else if (hit == 2) {
-    app_.view_action();
+  } else if (hit >= 2) {
+    app_.view_action(hit);
   }
   return hit != 0;
 }

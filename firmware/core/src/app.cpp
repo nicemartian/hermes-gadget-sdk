@@ -1367,6 +1367,15 @@ void App::h_dashboard(const json::Value& m) {
       notes.emplace_back(id.substr(0, id.size() - 5), value);
       continue;
     }
+    if (profile_.skin_eyes && t["id"].as_string() == "music.pos") {  // "seconds in/seconds long"
+      const size_t slash = value.find('/');
+      if (slash != std::string::npos) {
+        music_pos_s_ = static_cast<uint32_t>(std::max(0, std::atoi(value.c_str())));
+        music_len_s_ = static_cast<uint32_t>(std::max(0, std::atoi(value.c_str() + slash + 1)));
+        music_pos_at_ = now();
+      }
+      continue;
+    }
     if (profile_.skin_eyes && t["id"].as_string() == "music") {  // what is playing: on the face, not in the list
       music_title = t["label"].as_string();
       music_artist = value;
@@ -1395,6 +1404,10 @@ void App::h_dashboard(const json::Value& m) {
   chips_ = std::move(chips);
   music_title_ = std::move(music_title);
   music_artist_ = std::move(music_artist);
+  if (music_title_.empty()) {
+    music_open_ = false;
+    music_len_s_ = 0;
+  }
   dash_rows_ = std::move(rows);
   dash_headline_ = waiting ? tr(i18n::Msg::NWaiting, {std::to_string(waiting)})
                    : busy  ? tr(i18n::Msg::NBusy, {std::to_string(busy)})
@@ -1514,7 +1527,22 @@ void App::touch_seen(int x, int y) {
   update_model();
 }
 
-void App::view_action() {
+void App::view_action(int which) {
+  // Now playing: its buttons go to whoever listens on the Hermes side (the plugin's event hook),
+  // not to the agent; 5 is the way back. On the face, 3 is a tap on what is playing.
+  if (model_.music_view) {
+    if (which == 5) music_open_ = false;
+    else emit_event(which == 3 ? "music.previous" : which == 4 ? "music.next" : "music.toggle", json::Value::object(), false);
+    update_model();
+    return;
+  }
+  if (which == 3) {
+    if (model_.screen == Screen::Ready && !music_title_.empty()) {
+      music_open_ = true;
+      update_model();
+    }
+    return;
+  }
   // The timer face's Cancel.
   if (timer_running_ && model_.screen == Screen::Ready && !settings_open()) {
     timer_running_ = timer_due_ = false;
@@ -2380,6 +2408,10 @@ void App::tick() {
   power_tick();
   motion_tick();
   clock_tick();
+  if (music_open_ && t / 1000 != music_step_) {  // the open now playing screen: its time moves
+    music_step_ = t / 1000;
+    update_model();
+  }
   settings_tick();
   camera_tick();
   phone_tick();
@@ -2585,6 +2617,10 @@ void App::update_model() {
   m.music_artist.clear();
   m.timer_text.clear();
   m.timer_label.clear();
+  m.music_view = false;
+  m.music_permille = -1;
+  m.music_at.clear();
+  m.music_length.clear();
   m.glance = glance_;
   m.glance_x = glance_x_;
   m.glance_y = glance_y_;
@@ -2967,6 +3003,21 @@ void App::update_model() {
       m.chips = chips_;
       m.music_title = music_title_;
       m.music_artist = music_artist_;
+      if (m.screen == Screen::Clock) music_open_ = false;  // rest closes it
+      if (music_open_ && m.screen == Screen::Ready && !timer_running_ && !music_title_.empty()) {
+        m.music_view = true;
+        if (music_len_s_) {
+          const uint32_t at = std::min(music_len_s_, music_pos_s_ + (now() - music_pos_at_) / 1000);
+          auto clock = [](uint32_t s) {
+            char buf[12];
+            std::snprintf(buf, sizeof buf, "%u:%02u", static_cast<unsigned>(s / 60), static_cast<unsigned>(s % 60));
+            return std::string(buf);
+          };
+          m.music_permille = static_cast<int16_t>(static_cast<uint64_t>(at) * 1000 / music_len_s_);
+          m.music_at = clock(at);
+          m.music_length = clock(music_len_s_);
+        }
+      }
       if (timer_running_ && m.screen == Screen::Ready) {
         m.timer_text = timer_left_text();
         m.timer_label = timer_label_;

@@ -57,8 +57,8 @@ class Eyes {
  public:
   // Whether the skin draws this model. Screens it does not know stay with the stock renderer.
   static bool wants(const UiModel& m);
-  // Whether (x, y) is on the face's one button: a running timer's Cancel.
-  static bool button_hit(const UiModel& m, int x, int y, int w, int h);
+  // What on the face (x, y) is on: 2 a running timer's Cancel, 3 what is playing, 0 nothing.
+  static int button_hit(const UiModel& m, int x, int y, int w, int h);
   void set_frame_ms(uint32_t ms) { frame_ms_ = ms ? ms : 1; }
   // Draws what changed since the last call into the panel's RGB565 framebuffer (`full`:
   // everything). Returns the rows to send, sorted and merged; empty when nothing changed.
@@ -119,7 +119,7 @@ namespace view {
 bool wants(const UiModel& m);
 uint32_t key(const UiModel& m);  // changes whenever the picture does
 void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap);  // the whole panel
-enum class Hit : uint8_t { None, Yes, No, Back, Action };
+enum class Hit : uint8_t { None, Yes, No, Back, Action, Previous, Next, Close };
 Hit hit(const UiModel& m, int x, int y, int w, int h);  // panel coordinates
 // Whether the question's text is on the glass in full. A question that is not can be refused
 // from the device but not agreed to.

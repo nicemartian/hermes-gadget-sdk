@@ -116,6 +116,11 @@ struct UiModel {
   };
   std::vector<Chip> chips;
   std::string music_title, music_artist;
+  // The Eyes skin's now playing screen (a tap on what is playing opens it): how far the track
+  // is, in thousandths (-1: unknown), and the two times under it ("1:42", "4:28").
+  bool music_view = false;
+  int16_t music_permille = -1;
+  std::string music_at, music_length;
   // A running timer as the Eyes skin's face shows it: the time left ("4:59") and its label.
   std::string timer_text, timer_label;
   // The last touch on the resting face: the eyes glance that way. `glance` goes up with each

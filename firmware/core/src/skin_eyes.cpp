@@ -146,12 +146,18 @@ int text_units(std::string_view s) {
   return units;
 }
 
-bool Eyes::button_hit(const UiModel& m, int x, int y, int w, int h) {
-  if (m.screen != Screen::Ready || m.timer_text.empty()) return false;
-  return std::abs(x - w / 2) <= kCancelW / 2 + 12 && std::abs(y - (h - 466) / 2 - kCancelY) <= kCancelH / 2 + 12;
+int Eyes::button_hit(const UiModel& m, int x, int y, int w, int h) {
+  if (m.screen != Screen::Ready) return 0;
+  x -= w / 2;
+  y -= (h - 466) / 2;
+  if (!m.timer_text.empty()) return std::abs(x) <= kCancelW / 2 + 12 && std::abs(y - kCancelY) <= kCancelH / 2 + 12 ? 2 : 0;
+  // What is playing, under the name: a tap opens its screen.
+  if (!m.music_title.empty() && m.attention.empty() && m.detail.empty() && std::abs(x) <= 150 && y >= 318 && y < 384) return 3;
+  return 0;
 }
 
 bool Eyes::wants(const UiModel& m) {
+  if (m.music_view) return false;  // now playing has its own screen (skin_views.cpp)
   // The clock, a timer that ran out and a running timer are faces too.
   if (m.screen == Screen::Clock || m.screen == Screen::Alarm) return true;
   if (!m.hero || !m.yes.empty() || !m.no.empty() || m.qr) return false;

@@ -227,6 +227,10 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         self._opus_bitrate = 24000 if opus_bitrate in (None, "") else int(opus_bitrate)
         self._speak_replies = _flag(extra.get("speak_replies"), True)
         self._auto_home = _flag(extra.get("auto_home"), True)
+        # A command run for each event a paired device sends without `notify` (a button on its
+        # screen, say): `event_hook: "python3 /path/script.py"`. It gets the event's name and its
+        # data as JSON as two more arguments, and no shell.
+        self._event_hook = str(extra.get("event_hook") or "").split()
         self._battery_log_on = _flag(extra.get("battery_log"), False)
         self._dashboard_on = _flag(extra.get("dashboard"), True)
         self._profile_faces = _flag(extra.get("profile_faces"), True)
@@ -1104,6 +1108,15 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
     async def on_event(self, session: DeviceSession, name: str, data: Any, notify: bool) -> None:
         logger.info("[%s] event from %s: %s %s", self.name, session.device_id, name, data)
         if not notify:
+            if self._event_hook and session.paired and re.fullmatch(r"[a-z][a-z0-9_.]{0,39}", name or ""):
+                argv = self._event_hook + [name, json.dumps(data, separators=(",", ":"))[:500]]
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL)
+                    session.spawn(proc.wait())  # reaped, never awaited here: the device is not kept waiting
+                except OSError as exc:
+                    logger.warning("[%s] event hook failed for %s: %s", self.name, name, exc)
             return
         payload = json.dumps(data, separators=(",", ":"))[:500] if data is not None else ""
         await self._forward(session, self._event(

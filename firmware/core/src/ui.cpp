@@ -491,11 +491,14 @@ void Ui::draw_skin(const UiModel& m) {
 bool Ui::panel_view(const UiModel& m) const { return skin_on_ && skin::view::wants(m); }
 
 int Ui::view_hit(const UiModel& m, int x, int y) const {
-  if (skinned(m)) return skin::Eyes::button_hit(m, x, y, panel_.width, panel_.height) ? 2 : 0;
+  if (skinned(m)) return skin::Eyes::button_hit(m, x, y, panel_.width, panel_.height);
   if (!panel_view(m)) return 0;
   switch (skin::view::hit(m, x, y, panel_.width, panel_.height)) {
     case skin::view::Hit::Back: return 1;
     case skin::view::Hit::Action: return 2;
+    case skin::view::Hit::Previous: return 3;
+    case skin::view::Hit::Next: return 4;
+    case skin::view::Hit::Close: return 5;
     default: return 0;
   }
 }

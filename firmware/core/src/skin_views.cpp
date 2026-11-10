@@ -301,6 +301,60 @@ void draw_dash(Surface& s, const UiModel& m) {
 
 constexpr Box kAction{kC - 92, 330, 184, 52};
 
+// Now playing: the track and who plays it, a button to pause with one each side to skip, and
+// how far the track is as an arc at the glass edge.
+constexpr int kMusicY = 336;
+constexpr Rgb kPlay{95, 224, 138};
+
+void draw_music(Surface& s, const UiModel& m) {
+  back_pill(s, m);
+  // The arc: a faint circle, and over it the part played, clockwise from the top.
+  const float rr = kSize / 2 - 9.0f, played = m.music_permille < 0 ? -1.0f : clamp01(m.music_permille / 1000.0f) * 6.2831853f;
+  for (int y = 0; y < kSize; ++y) {
+    const float py = y + 0.5f - kC;
+    const float out2 = (rr + 5) * (rr + 5) - py * py;
+    if (out2 <= 0) continue;
+    const float in2 = (rr - 5) * (rr - 5) - py * py;
+    const int xo = static_cast<int>(std::sqrt(out2)) + 1, xi = in2 > 0 ? static_cast<int>(std::sqrt(in2)) : 0;
+    for (int side : {-1, 1})
+      for (int i = xi; i <= xo; ++i) {
+        const int x = kC + side * i - (side < 0 ? 1 : 0);
+        const float px = x + 0.5f - kC;
+        const float off = std::fabs(std::sqrt(px * px + py * py) - rr);
+        if (off > 4.5f) continue;
+        float a = clamp01(0.5f - (off - 1.0f)) * 0.2f;
+        float angle = std::atan2(px, -py);
+        if (angle < 0) angle += 6.2831853f;
+        if (angle <= played) a = std::max(a, clamp01(0.5f - (off - 2.5f)) * 0.95f);
+        if (a > 0) s.add(x, y, kPlay, static_cast<int>(a * 255));
+      }
+  }
+  // Pleased eyes: two small arcs.
+  for (int side : {-1, 1}) {
+    const float cx = kC + side * 34.0f, cy = 146, r = 17;
+    float px = 0, py = 0;
+    for (int i = 0; i <= 8; ++i) {
+      const float a = (200 + i * 17.5f) * 3.14159265f / 180;
+      const float x = cx + std::cos(a) * r, y = cy + std::sin(a) * r;
+      if (i) capsule_line(s, px, py, x, y, 9.0f, kGold, 1.0f);
+      px = x;
+      py = y;
+    }
+  }
+  centred(s, kText3, 192, fit(kText3, m.music_title, 330), kFg);
+  centred(s, kText2, 236, fit(kText2, m.music_artist, 300), kMuted);
+  // Pause, with the two bars; a pair of chevrons each side to skip.
+  glow_box(s, kC, kMusicY, 72, 72, kPill, 1.0f, 0);
+  for (int side : {-1, 1}) glow_box(s, kC + side * 8.0f, kMusicY, 8, 28, kFg, 0.96f, 0);
+  for (int side : {-1, 1})
+    for (int k = 0; k < 2; ++k) {
+      const float tip = kC + side * (98.0f + k * 13), back = tip - side * 10.0f;
+      capsule_line(s, back, kMusicY - 11.0f, tip, kMusicY, 3.0f, kMuted, 1.0f);
+      capsule_line(s, tip, kMusicY, back, kMusicY + 11.0f, 3.0f, kMuted, 1.0f);
+    }
+  if (!m.music_length.empty()) centred(s, kText2, 386, m.music_at + " / " + m.music_length, kMuted, 0.8f);
+}
+
 void draw_offline(Surface& s, const UiModel& m) {
   for (int side : {-1, 1}) glow_box(s, kC + side * 56.0f, 168, 44, 10, kRest, 0.85f, 16);  // resting, not broken
   centred(s, kText3, 216, m.headline, kFg);
@@ -321,6 +375,7 @@ void draw_offline(Surface& s, const UiModel& m) {
 
 bool wants(const UiModel& m) {
   if (m.qr || m.color_test) return false;
+  if (m.music_view) return true;
   switch (m.screen) {
     case Screen::Prompt: return m.hero && !(m.yes.empty() && m.no.empty());
     case Screen::Card: return true;
@@ -336,6 +391,10 @@ uint32_t key(const UiModel& m) {
   k = mix(k, static_cast<uint32_t>(m.scroll));
   k = mix(k, static_cast<uint32_t>(m.lang));
   if (m.screen == Screen::Dashboard) k = mix(k, m.attention);
+  if (m.music_view) {
+    k = mix(mix(mix(mix(k, m.music_title), m.music_artist), m.music_at), m.music_length);
+    k = mix(k, 7u + static_cast<uint32_t>(m.music_permille + 1));
+  }
   if (m.screen == Screen::Dashboard)
     for (const DashRow& row : m.dash) k = mix(mix(mix(k, row.label), row.value), (static_cast<uint32_t>(row.tone) << 2) | (row.sub << 1) | row.heading);
   return mix(k, (m.hero ? 1u : 0u) | (m.yes.empty() ? 0u : 2u) | (m.no.empty() ? 0u : 4u));
@@ -346,6 +405,10 @@ void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap) {
   if (w < kSize || h < kSize) return;
   // The layout's 466 square, centred on the panel.
   Surface s{fb + (h - kSize) / 2 * w + (w - kSize) / 2, w, kSize, swap};
+  if (m.music_view) {
+    draw_music(s, m);
+    return;
+  }
   switch (m.screen) {
     case Screen::Prompt: draw_ask(s, m); break;
     case Screen::Card: draw_card(s, m); break;
@@ -358,6 +421,13 @@ void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap) {
 Hit hit(const UiModel& m, int x, int y, int w, int h) {
   x -= (w - kSize) / 2;
   y -= (h - kSize) / 2;
+  if (m.music_view) {
+    if (kBack.has(x, y, 22)) return Hit::Close;
+    if (std::abs(y - kMusicY) > 46) return Hit::None;
+    if (std::abs(x - kC) <= 46) return Hit::Action;
+    if (std::abs(x - kC) <= 150) return x < kC ? Hit::Previous : Hit::Next;
+    return Hit::None;
+  }
   switch (m.screen) {
     case Screen::Prompt:
       if (!m.yes.empty() && yes_box(m).has(x, y, 10) && (m.no.empty() || x < kC)) return Hit::Yes;

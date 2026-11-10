@@ -112,6 +112,7 @@ bool ask_whole(const UiModel& m);
 // A long card's text: the columns it wraps to and the lines a page holds.
 int card_cols();
 int card_rows();
+int dash_rows();  // the sessions screen's rows
 }  // namespace view
 
 }  // namespace skin

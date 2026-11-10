@@ -1156,6 +1156,7 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
 }
 
 int Ui::dash_rows() const {
+  if (skin_on_) return skin::view::dash_rows();
   const int s = layout_.scale;
   const int content_h = info_.height - layout_.top_h - layout_.header_h - layout_.bottom_h;
   return std::max(1, (content_h - 4 * s) / (Canvas::line_height(s) + 2 * s));

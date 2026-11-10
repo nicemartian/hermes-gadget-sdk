@@ -176,13 +176,15 @@ void button(Surface& s, const Box& b, const std::string& label, Rgb fill, Rgb in
 // The way back, the same on every screen that has one: a pill at the top of the glass.
 constexpr Box kBack{kC - 56, 38, 112, 40};
 
-void back_pill(Surface& s, const UiModel& m) {
-  glow_box(s, kC, kBack.y + kBack.h / 2.0f, static_cast<float>(kBack.w), static_cast<float>(kBack.h), kPill, 1.0f, 0);
-  const std::string word = i18n::text(m.lang, i18n::Msg::Back);
-  const int tw = text_width(kText2, word), total = 14 + tw, x = kC - total / 2, cy = kBack.y + kBack.h / 2;
+void back_pill(Surface& s, const UiModel& m, i18n::Msg label = i18n::Msg::Back) {
+  const std::string word = i18n::text(m.lang, label);
+  const bool back = label == i18n::Msg::Back;  // only the way back has the chevron
+  const int tw = text_width(kText2, word), lead = back ? 14 : 0, total = lead + tw, x = kC - total / 2, cy = kBack.y + kBack.h / 2;
+  glow_box(s, kC, kBack.y + kBack.h / 2.0f, static_cast<float>(std::max(kBack.w, total + 36)), static_cast<float>(kBack.h), kPill, 1.0f, 0);
+  draw_text(s, kText2, x + lead, cy - kText2.mid, word, kFg, 0.92f);
+  if (!back) return;
   capsule_line(s, x + 6.0f, cy - 6.0f, x + 0.5f, static_cast<float>(cy), 2.2f, kMuted, 1.0f);
   capsule_line(s, x + 0.5f, static_cast<float>(cy), x + 6.0f, cy + 6.0f, 2.2f, kMuted, 1.0f);
-  draw_text(s, kText2, x + 14, cy - kText2.mid, word, kFg, 0.92f);
 }
 
 void small_eyes(Surface& s, int cy, Rgb c) {
@@ -245,6 +247,51 @@ void draw_card(Surface& s, const UiModel& m) {
   }
 }
 
+// The sessions and status tiles: one row each, set to the glass's width at its height.
+constexpr int kDashTop = 98, kDashPitch = 38, kDashRows = 7;
+
+Rgb tone_rgb(DashRow::Tone t) {
+  switch (t) {
+    case DashRow::Tone::Busy: return kViolet;
+    case DashRow::Tone::Waiting:
+    case DashRow::Tone::Warn: return kGold;
+    case DashRow::Tone::Good: return Rgb{95, 224, 138};
+    case DashRow::Tone::Bad: return kRest;
+    default: return kMuted;
+  }
+}
+
+void draw_dash(Surface& s, const UiModel& m) {
+  back_pill(s, m, i18n::Msg::Settings);
+  const int total = static_cast<int>(m.dash.size());
+  const int max_first = std::max(0, total - kDashRows);
+  const int first = std::max(0, std::min(m.scroll, max_first));
+  const int shown = std::min(kDashRows, total - first);
+  int y = kDashTop + (kDashRows - shown) * kDashPitch / 2;
+  for (int i = 0; i < shown; ++i, y += kDashPitch) {
+    const DashRow& row = m.dash[static_cast<size_t>(first + i)];
+    const int ty = y + (kDashPitch - kText2.line) / 2, cy = y + kDashPitch / 2;
+    if (row.heading) {
+      centred(s, kText2, ty, row.label, kMuted, 0.8f);
+      continue;
+    }
+    const int width = 276, left = kC - width / 2, right = kC + width / 2;  // one column: what the lowest row's glass holds
+    const Rgb tone = tone_rgb(row.tone);
+    glow_box(s, left + 6.0f, static_cast<float>(cy), 10, 10, tone, 1.0f, 5);
+    const std::string value = fit(kText2, row.value, width / 2);
+    const int vw = text_width(kText2, value);
+    const std::string label = fit(kText2, row.label, width - 24 - vw - (vw ? 12 : 0));
+    draw_text(s, kText2, left + 24, ty, label, kFg, 0.96f);
+    if (vw) draw_text(s, kText2, right - vw, ty, value, tone, 1.0f);
+  }
+  if (total > kDashRows) {
+    const float track = 56, thumb = std::max(12.0f, track * kDashRows / total);
+    const float at = max_first ? static_cast<float>(first) / max_first : 0.0f;
+    glow_box(s, kC, 392, track, 4, kPill, 1.0f, 0);
+    glow_box(s, kC - track / 2 + thumb / 2 + (track - thumb) * at, 392, thumb, 4, kMuted, 1.0f, 0);
+  }
+}
+
 constexpr Box kAction{kC - 92, 330, 184, 52};
 
 void draw_offline(Surface& s, const UiModel& m) {
@@ -271,6 +318,7 @@ bool wants(const UiModel& m) {
     case Screen::Prompt: return m.hero && !(m.yes.empty() && m.no.empty());
     case Screen::Card: return true;
     case Screen::Offline: return m.hero;
+    case Screen::Dashboard: return true;
     default: return false;
   }
 }
@@ -280,6 +328,8 @@ uint32_t key(const UiModel& m) {
   k = mix(k, static_cast<uint32_t>(m.screen));
   k = mix(k, static_cast<uint32_t>(m.scroll));
   k = mix(k, static_cast<uint32_t>(m.lang));
+  if (m.screen == Screen::Dashboard)
+    for (const DashRow& row : m.dash) k = mix(mix(mix(k, row.label), row.value), (static_cast<uint32_t>(row.tone) << 1) | row.heading);
   return mix(k, (m.hero ? 1u : 0u) | (m.yes.empty() ? 0u : 2u) | (m.no.empty() ? 0u : 4u));
 }
 
@@ -292,6 +342,7 @@ void draw(const UiModel& m, uint16_t* fb, int w, int h, bool swap) {
     case Screen::Prompt: draw_ask(s, m); break;
     case Screen::Card: draw_card(s, m); break;
     case Screen::Offline: draw_offline(s, m); break;
+    case Screen::Dashboard: draw_dash(s, m); break;
     default: break;
   }
 }
@@ -306,6 +357,7 @@ Hit hit(const UiModel& m, int x, int y, int w, int h) {
       return Hit::None;
     case Screen::Card: return kBack.has(x, y, 22) ? Hit::Back : Hit::None;
     case Screen::Offline: return kAction.has(x, y, 12) ? Hit::Action : Hit::None;
+    case Screen::Dashboard: return kBack.has(x, y, 22) ? Hit::Action : Hit::None;
     default: return Hit::None;
   }
 }
@@ -314,5 +366,6 @@ bool ask_whole(const UiModel& m) { return ask_layout(m).whole; }
 
 int card_cols() { return kCardWidth / 12; }  // the body font's columns are 12 px (text_units)
 int card_rows() { return (kCardBottom - kCardTop) / kCardPitch; }
+int dash_rows() { return kDashRows; }
 
 }  // namespace hg::skin::view

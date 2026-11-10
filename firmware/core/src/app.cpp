@@ -1464,9 +1464,10 @@ void App::prompt_tap(int x, int y) {
 }
 
 void App::view_action() {
-  // The offline screen's button: settings, at Wi-Fi setup where this board has it.
+  // The sessions screen's button opens settings; the offline screen's too, at Wi-Fi setup where this board has it.
+  const bool offline = model_.screen == Screen::Offline;
   if (settings_open() || !open_settings()) return;
-  if (menu_offered(Menu::WifiSetup)) {
+  if (offline && menu_offered(Menu::WifiSetup)) {
     menu_ = Menu::WifiSetup;
     settings_follow_ = true;
     update_model();

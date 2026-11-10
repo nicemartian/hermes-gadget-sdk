@@ -59,6 +59,7 @@ struct DashRow {
   std::string label, value;
   Tone tone = Tone::Dim;
   bool heading = false;
+  bool sub = false;  // a line under the row above it, which it explains (the Eyes skin's sessions screen)
 };
 
 // One row of the settings list: a small icon, the item's name, and its state at the
@@ -107,6 +108,16 @@ struct UiModel {
   // and a count that goes up each time something went well (the eyes smile for a moment).
   std::string attention, attention_detail;  // the second line: where, and what for
   uint8_t cheer = 0;
+  // The Eyes skin's resting and clock faces: who else is at work, as small marks ("Claude",
+  // "ChatGPT") in each one's colour, and what is playing (empty: nothing).
+  struct Chip {
+    std::string label;
+    DashRow::Tone tone = DashRow::Tone::Dim;
+  };
+  std::vector<Chip> chips;
+  std::string music_title, music_artist;
+  // A running timer as the Eyes skin's face shows it: the time left ("4:59") and its label.
+  std::string timer_text, timer_label;
   // Show the mascot as large as fits, with headline/detail as a caption,
   // instead of the header + text layout.
   bool hero = false;
@@ -148,6 +159,7 @@ struct UiModel {
   std::string clock_time, clock_date;
   uint8_t clock_minute = 0;
   uint8_t clock_second = 0;
+  uint8_t clock_hour = 0;  // 0..23, whatever the time format: the Eyes skin's clock is sleepy at night
 };
 
 struct UiLayout {

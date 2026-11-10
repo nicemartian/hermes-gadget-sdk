@@ -49,7 +49,7 @@ NOT_WAITING = ("dialog open",)
 APPS = {"cli": "Terminal", "claude-desktop": "Claude app"}
 NOTE_CHARS = 26
 NAME_CHARS = 26     # what the gadget takes for a row's name; it cuts it to fit beside "working"
-SESSION_ROWS = 4    # the gadget lists eight tiles at most
+SESSION_ROWS = 3    # the gadget holds eight tiles at most: these, claude, its note, codex and music
 BUSY_HOLD_S = 45
 
 
@@ -158,10 +158,11 @@ def claude_tiles(now=None):
         named = titles.get(str(first.get("sessionId") or ""))
         tiles["claude.note"] = ("Claude", display_name(first, titles) if named else where(first, now), None)
     elif busy:
-        pass  # the rows below say it, one per session: a "Claude: working" line above them would say it twice
+        tiles["claude"] = ("Claude", "working" if busy == 1 else "%d working" % busy, "ok")
     else:
         tiles["claude"] = ("Claude", "idle", None)
-    rows = [(s, "working", "ok") for s in busy_sessions]  # the one that waits is the `claude` tile itself
+    # Under the `claude` tile the gadget lists these as plain lines: which sessions it counted.
+    rows = [(s, asks(s), "warn") for s in waiting_sessions] + [(s, "working", "ok") for s in busy_sessions]
     for n, (s, value, state) in enumerate(rows[:SESSION_ROWS], 1):
         tiles["claude.%d" % n] = (display_name(s, titles), value, state)
     return tiles
@@ -214,6 +215,31 @@ def codex_tile(now):
     return ("idle" if seen else "off"), None
 
 
+def music_tile():
+    """(title, artist, None) for what Spotify is playing on this Mac, or None.
+
+    Spotify is asked only while it is already running, so this never starts it. The first time,
+    macOS asks whether this script may control Spotify; until that is allowed there is no tile.
+    """
+    if sys.platform != "darwin" or not shutil.which("osascript"):
+        return None
+    try:
+        if subprocess.run(["pgrep", "-xq", "Spotify"], timeout=5).returncode != 0:
+            return None
+        script = ('tell application "Spotify" to if player state is playing then '
+                  'return (name of current track) & "\n" & (artist of current track)')
+        r = subprocess.run(["osascript", "-e", script], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=8)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    title, _, artist = r.stdout.decode("utf-8", "replace").strip().partition("\n")
+    title, artist = " ".join(title.split()), " ".join(artist.split())
+    if not title:
+        return None
+    return (title[:NAME_CHARS].rstrip(), artist[:NAME_CHARS].rstrip() or "Spotify", None)
+
+
 def set_tile(hermes, name, label, value, state):
     cmd = [hermes, "gadget", "tile", "set", name, value, "--label", label, "--ttl", str(TILE_TTL_S)]
     if state:
@@ -229,10 +255,13 @@ def main():
 
     now = time.time()
     tiles = claude_tiles(now)
-    tiles["codex"] = ("ChatGPT Codex",) + codex_tile(now)
+    tiles["codex"] = ("ChatGPT",) + codex_tile(now)
+    song = music_tile()
+    if song:
+        tiles["music"] = song
     if args.dry_run:
         for name, (label, value, state) in tiles.items():
-            print("%-11s %-14s %-26s %s" % (name, label, value, state or "-"))
+            print("%-11s %-26s %-26s %s" % (name, label, value, state or "-"))
         return 0
 
     try:

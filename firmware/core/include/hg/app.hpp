@@ -838,6 +838,8 @@ class App {
   uint32_t prompt_since_ = 0;
   uint8_t cheer_ = 0;             // the Eyes skin smiles each time this goes up
   bool attention_shown_ = false;  // a status tile was warning at the last model
+  std::vector<UiModel::Chip> chips_;              // the status tiles as the faces' marks
+  std::string music_title_, music_artist_;         // the tile "music": label and value
   std::string attention_, attention_detail_;  // the first warning tile: "Claude needs you", and the "<name>.note" tile's value
   uint32_t prompt_until_ = 0;  // 0 = until answered or withdrawn
 

@@ -67,7 +67,7 @@ class Eyes {
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // [x0, x1) x [y0, y1); empty when y0 >= y1
     bool empty() const { return y0 >= y1 || x0 >= x1; }
   };
-  enum class Ring : uint8_t { None, Still, Pulse, Comet, Ticks };
+  enum class Ring : uint8_t { None, Still, Pulse, Comet, Ticks, Arc };
 
   uint32_t frame_ms_ = 100;
   bool started_ = false;
@@ -85,6 +85,12 @@ class Eyes {
   uint8_t cheer_ = 0;
   bool cheering_ = false;
   uint32_t cheer_at_ms_ = 0;
+  // the compact layout (clock, running timer): eyes at the top, digits in the middle
+  bool compact_ = false;
+  uint8_t hour_ = 255;                  // the clock's hour at the last frame: a new one is a smile
+  int eq_x_ = 0, eq_y_ = -1;            // the bars beside what is playing (-1: none)
+  uint32_t eq_key_ = 0;
+  int dot_sec_ = -1, dot_y0_ = 0, dot_y1_ = 0;  // the clock's seconds dot on the ring
   // what is on the panel now
   uint32_t face_key_ = 0, ring_key_ = 0, text_key_ = 0;
   Box face_box_, comet_box_;

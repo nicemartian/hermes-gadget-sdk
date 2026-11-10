@@ -20,6 +20,11 @@ constexpr int kTextTop = 288;  // the face stays above this row, the captions be
 // The resting face: its captions stay this long after they change, then fade; a long quiet
 // makes the eyes sleepy; a cheer is a smile this long.
 constexpr uint32_t kCaptionMs = 6000, kCaptionFadeMs = 600, kSleepyMs = 120000, kCheerMs = 2500;
+// The clock and a running timer: the eyes sit small at the top and the digits take the middle.
+// The face stays above kCompactTop there; on the other faces the marks at the top stay above
+// kChipsBottom, clear of the eyes.
+constexpr int kCompactTop = 176, kChipsTop = 88, kChipsBottom = 116;
+constexpr Rgb kMint{120, 235, 165};
 
 // A stand-in for the voice's level while Hermes speaks (the model carries none): 0..1.
 float voice(float t) {
@@ -33,7 +38,14 @@ struct Target {
   float ew, eh, gap, ey;
 };
 
-Target target_for(const UiModel& m, bool sleepy, bool attention) {
+Target target_for(const UiModel& m, bool sleepy, bool attention, bool compact) {
+  if (m.screen == Screen::Alarm) return {kMint, 54, 86, 120, 200};  // time is up: wide open
+  if (compact) {
+    if (sleepy) return {Rgb{150, 115, 63}, 38, 16, 88, 122};
+    if (attention) return {kGold, 40, 58, 92, 116};
+    if (!m.timer_text.empty()) return {kGold, 36, 44, 88, 120};  // watching the digits
+    return {kGold, 36, 52, 88, 118};
+  }
   if (sleepy) return {Rgb{150, 115, 63}, 46, 26, 112, 214};  // lids half down, dimmer
   if (attention) return {kGold, 54, 86, 120, 200};          // wide open
   switch (m.screen) {
@@ -68,6 +80,28 @@ void smile(Surface& s, float cx, float cy, float r, float width, Rgb c, float gl
       }
       s.add(x, y, c, static_cast<int>(a * 255));
     }
+}
+
+// "TUE NOV 10" as the stock clock writes it, in the skin's quieter voice: "Tue Nov 10".
+std::string soften(std::string text) {
+  bool inside = false;
+  for (char& c : text) {
+    const bool upper = c >= 'A' && c <= 'Z';
+    if (upper && inside) c = static_cast<char>(c - 'A' + 'a');
+    inside = upper || (c >= 'a' && c <= 'z');
+  }
+  return text;
+}
+
+Rgb tone_rgb(DashRow::Tone tone) {
+  switch (tone) {
+    case DashRow::Tone::Busy: return kViolet;
+    case DashRow::Tone::Waiting:
+    case DashRow::Tone::Warn: return kGold;
+    case DashRow::Tone::Good: return Rgb{95, 224, 138};
+    case DashRow::Tone::Bad: return Rgb{255, 107, 107};
+    default: return kMuted;
+  }
 }
 
 bool g_text = false;
@@ -108,7 +142,9 @@ int text_units(std::string_view s) {
 }
 
 bool Eyes::wants(const UiModel& m) {
-  if (!m.hero || !m.yes.empty() || !m.no.empty() || m.qr || m.timer_permille >= 0) return false;
+  // The clock, a timer that ran out and a running timer are faces too.
+  if (m.screen == Screen::Clock || m.screen == Screen::Alarm) return true;
+  if (!m.hero || !m.yes.empty() || !m.no.empty() || m.qr) return false;
   switch (m.screen) {
     case Screen::Ready:
     case Screen::Listening:
@@ -179,7 +215,21 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
   // Moods of the resting face. What it says leaves after a few seconds, a long quiet makes it
   // sleepy, something waiting on the user opens the eyes wide, and good news is a short smile.
   const bool ready = m.screen == Screen::Ready;
-  const bool attention = ready && !m.attention.empty();
+  const bool clock = m.screen == Screen::Clock, alarm = m.screen == Screen::Alarm;
+  const bool timing = ready && !m.timer_text.empty();
+  const bool compact = clock || timing;
+  const bool resting = ready || clock;
+  const bool attention = resting && !m.attention.empty();
+  const bool night = clock && (m.clock_hour >= 23 || m.clock_hour < 7);
+  // Between the two layouts everything inside the ring goes, and comes back as the eyes arrive.
+  const bool repaint = first || compact != compact_;
+  if (!first && compact != compact_) {
+    clear_inner(0, h);
+    mark(0, h);
+    face_box_ = Box{};
+    eq_y_ = -1;
+  }
+  compact_ = compact;
   {
     uint32_t ck = mix(mix(mix(mix(mix(43, m.headline), m.detail), m.hint), m.attention), m.attention_detail);
     ck = mix(ck, static_cast<uint32_t>(m.screen));
@@ -190,15 +240,20 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
   }
   const uint32_t calm_ms = now_ms - calm_since_ms_;
   const bool quiet = ready && !attention && move && calm_ms >= kCaptionMs;
-  const bool sleepy = quiet && calm_ms >= kSleepyMs;
+  const bool sleepy = (quiet && calm_ms >= kSleepyMs && !timing) || (night && !attention);
   const float caption_alpha = !ready || attention || !move ? 1.0f : clamp01((static_cast<float>(kCaptionMs) - calm_ms) / kCaptionFadeMs);
   if (m.cheer != cheer_) {
     cheering_ = seen_before && move;
     cheer_at_ms_ = now_ms;
     cheer_ = m.cheer;
   }
-  if (cheering_ && (now_ms - cheer_at_ms_ >= kCheerMs || !ready)) cheering_ = false;
-  const Target tg = target_for(m, sleepy, attention);
+  if (clock && hour_ != 255 && m.clock_hour != hour_ && !night && move) {  // a new hour: a smile
+    cheering_ = true;
+    cheer_at_ms_ = now_ms;
+  }
+  hour_ = clock ? m.clock_hour : 255;
+  if (cheering_ && (now_ms - cheer_at_ms_ >= kCheerMs || !resting)) cheering_ = false;
+  const Target tg = target_for(m, sleepy, attention, compact);
 
   ew_ += (tg.ew - ew_) * k;
   eh_ += (tg.eh - eh_) * k;
@@ -220,12 +275,16 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       if (m.screen == Screen::Thinking) {
         gaze_x_ = -14 + rnd() * 28;
         gaze_y_ = -16;
+      } else if (compact) {  // little room above the digits: the eyes look about, hardly up or down
+        gaze_x_ = (rnd() - 0.5f) * 24;
+        gaze_y_ = timing ? 3 : (rnd() - 0.5f) * 6;
       } else if (m.screen == Screen::Ready) {
         gaze_x_ = (rnd() - 0.5f) * 36;
         gaze_y_ = (rnd() - 0.5f) * 16;
       }
     }
-    if (m.screen == Screen::Listening || m.screen == Screen::Responding) gaze_x_ = gaze_y_ = 0;
+    if (m.screen == Screen::Listening || m.screen == Screen::Responding || alarm) gaze_x_ = gaze_y_ = 0;
+    if (compact) gaze_y_ = std::max(-3.0f, std::min(3.0f, gaze_y_));
     if (static_cast<int32_t>(now_ms - next_blink_ms_) >= 0) {
       blink_at_ms_ = now_ms;
       blinking_ = true;
@@ -245,23 +304,26 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     else blinking_ = false;
   }
   const Rgb acc{static_cast<uint8_t>(acc_[0] + 0.5f), static_cast<uint8_t>(acc_[1] + 0.5f), static_cast<uint8_t>(acc_[2] + 0.5f)};
+  // Music: the eyes nod along, upwards only so they stay clear of what is under them.
+  const bool music = resting && !attention && !m.music_title.empty();
+  const float bob = music && move && !sleepy ? -1.5f * (1 + std::sin(t * 5.4f)) : 0.0f;
 
   // --- face: the eyes and, while speaking, the mouth ---
   {
     auto q = [](float v) { return static_cast<uint32_t>(static_cast<int>(std::lround(v * 2)) + 4096); };
     uint32_t key = 17;
-    for (float v : {ew_, eh_ * blink, gap_, ey_ + gy_, gx_}) key = mix(key, q(v));
+    for (float v : {ew_, eh_ * blink, gap_, ey_ + gy_ + bob, gx_}) key = mix(key, q(v));
     key = mix(key, (uint32_t(acc.r) << 16) | (uint32_t(acc.g) << 8) | acc.b);
     key = mix(key, q(mouth_ * 40));
     if (mouth_ > 0.03f) key = mix(key, m.fine);
     key = mix(key, cheering_);
-    if (first || key != face_key_) {
+    if (repaint || key != face_key_) {
       face_key_ = key;
-      const float eh = std::max(6.0f, eh_ * blink), cy = ey_ + gy_;
+      const float eh = std::max(6.0f, eh_ * blink), cy = ey_ + gy_ + bob;
       Box box;
       box.x0 = static_cast<int>(C - gap_ / 2 + gx_ - ew_ / 2 - kGlow - 2);
       box.x1 = static_cast<int>(C + gap_ / 2 + gx_ + ew_ / 2 + kGlow + 3);
-      box.y0 = static_cast<int>(cy - eh_ / 2 - kGlow - 2);  // the open eye's height: a blink does not shrink the box
+      box.y0 = static_cast<int>(cy - eh_ / 2 - kGlow - 3);  // the open eye's height: a blink does not shrink the box
       box.y1 = static_cast<int>(cy + eh_ / 2 + kGlow + 3);
       const float mouth_y = 254;
       if (mouth_ > 0.03f) box.y1 = std::max(box.y1, static_cast<int>(mouth_y + 20 + 10));
@@ -269,7 +331,7 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       const int y0 = was.empty() ? box.y0 : std::min(was.y0, box.y0), y1 = was.empty() ? box.y1 : std::max(was.y1, box.y1);
       // Clear only the columns the old and the new face cover, inside the ring band.
       const int cx0 = was.empty() ? box.x0 : std::min(was.x0, box.x0), cx1 = was.empty() ? box.x1 : std::max(was.x1, box.x1);
-      for (int y = std::max(0, y0); y < std::min({h, y1, kTextTop}); ++y) {
+      for (int y = std::max(0, y0); y < std::min(h, y1); ++y) {
         const int16_t* b = &band_[static_cast<size_t>(y) * 4];
         if (b[3] > b[0]) s.clear_run(y, std::max<int>(b[1], cx0), std::min<int>(b[2], cx1));
       }
@@ -297,9 +359,12 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         }
       }
       if (cheering_) {
-        for (int side : {-1, 1}) smile(s, C + side * gap_ / 2 + gx_, cy + 30, 34, 13, acc, 14);
+        for (int side : {-1, 1}) {
+          if (compact) smile(s, C + side * gap_ / 2 + gx_, cy + 20, 24, 10, acc, 10);
+          else smile(s, C + side * gap_ / 2 + gx_, cy + 30, 34, 13, acc, 14);
+        }
         face_box_ = box;
-        mark(y0, std::min(y1, kTextTop));
+        mark(y0, y1);
       } else {
       uint16_t lut[256];
       for (int a = 0; a < 256; ++a) {
@@ -326,24 +391,37 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         }
       }
       face_box_ = box;
-      mark(y0, std::min(y1, kTextTop));
+      mark(y0, y1);
       }
     }
   }
 
-  // --- captions: the headline, the detail lines and the hint ---
+  // --- words: captions, the clock or the timer, what is playing, and who else is at work ---
   {
+    // They wait for the eyes: in the compact layout the face must be above the digits, in the
+    // other clear of the marks at the top.
+    const bool settled = compact ? ey_ + eh_ / 2 + kGlow + 6 <= kCompactTop + 0.5f : ey_ - eh_ / 2 - kGlow - 14 >= kChipsBottom;
     uint32_t key = mix(mix(mix(23, m.headline), m.detail), m.hint);
     key = mix(mix(key, static_cast<uint32_t>(m.screen)), (uint32_t(m.caption_lines) << 1) | speaking);
     // While the reply is spoken the face is alone on the glass: the words come after, on the answer view.
     key = mix(key, static_cast<uint32_t>(std::ceil(caption_alpha * 12)));
     key = mix(mix(key, m.attention), m.attention_detail);
     if (speaking) key = 0x5EA4;
-    if (first || key != text_key_) {
+    key = mix(key, (uint32_t(compact) << 2) | (uint32_t(settled) << 1) | night);
+    key = mix(mix(mix(mix(key, m.clock_time), m.clock_date), m.timer_text), m.timer_label);
+    key = mix(mix(key, m.music_title), m.music_artist);
+    for (const UiModel::Chip& chip : m.chips) key = mix(mix(key, chip.label), static_cast<uint32_t>(chip.tone));
+    const bool redraw = repaint || key != text_key_;
+    if (redraw) {
       text_key_ = key;
-      const int top = kTextTop, bottom = 404;
+      eq_y_ = -1;
+      const int top = compact ? kCompactTop : kTextTop, bottom = 404;
       clear_inner(top, bottom);
-      if (speaking) mark(top, bottom);
+      mark(top, bottom);
+      if (!compact) {
+        clear_inner(kChipsTop, kChipsBottom);
+        mark(kChipsTop, kChipsBottom);
+      }
       auto chord = [&](int y0, int y1) {  // the width free of the ring over rows [y0, y1)
         int width = w;
         for (int y : {y0, y1 - 1}) {
@@ -353,32 +431,97 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
         }
         return width;
       };
-      auto centred = [&](const Font& f, int y, const std::string& text, Rgb c, float a) {
-        const std::string line = fit(f, text, chord(y, y + f.line));
-        draw_text(s, f, static_cast<int>(C) - text_width(f, line) / 2, y, line, c, a);
+      auto centred = [&](const Font& f, int y, const std::string& text, Rgb c, float a, int dx = 0) {
+        const std::string line = fit(f, text, chord(y, y + f.line) - 2 * std::abs(dx));
+        draw_text(s, f, static_cast<int>(C) - text_width(f, line) / 2 + dx, y, line, c, a);
       };
-      int y = kTextTop + 2;
-      const float ca = caption_alpha;
-      if (!speaking && ca > 0) centred(kText3, y, attention ? m.attention : m.headline, attention ? kGold : kFg, 0.96f * ca);
-      y += kText3.line + 1;
-      const int max_lines = attention ? 2 : std::max<int>(1, std::min<int>(m.caption_lines, 2));
-      std::string detail = speaking || ca <= 0 ? std::string() : attention ? m.attention_detail : m.detail;
-      if (detail == m.headline) detail.clear();  // a status that only repeats the headline
-      std::vector<std::string> lines = wrap(kText2, detail, chord(y, y + max_lines * kText2.line));
-      if (static_cast<int>(lines.size()) > max_lines) {
-        if (speaking) {  // the reply's latest lines
-          lines.erase(lines.begin(), lines.end() - max_lines);
-        } else {
-          lines.resize(static_cast<size_t>(max_lines));
-          lines.back() += "\xE2\x80\xA6";
+      // What is playing, on one line: three small bars that move (below), then the words.
+      auto playing = [&](int y, const std::string& text, Rgb c, float a) {
+        const int lead = 26;
+        const std::string line = fit(kText2, text, chord(y, y + kText2.line) - lead - 8);
+        const int x0 = static_cast<int>(C) - (text_width(kText2, line) + lead) / 2;
+        draw_text(s, kText2, x0 + lead, y, line, c, a);
+        eq_x_ = x0;
+        eq_y_ = y;
+      };
+      // Who else is at work: a dot in each one's colour and its name, as many as the row holds.
+      auto chips = [&](int y) {
+        const int dot = 16, between = 22, room = chord(y, y + kText2.line) - 8;
+        size_t n = 0;
+        int total = 0;
+        for (; n < m.chips.size(); ++n) {
+          const int width = dot + text_width(kText2, m.chips[n].label) + (n ? between : 0);
+          if (total + width > room) break;
+          total += width;
         }
+        int x = static_cast<int>(C) - total / 2;
+        for (size_t i = 0; i < n; ++i) {
+          const UiModel::Chip& chip = m.chips[i];
+          const bool idle = chip.tone == DashRow::Tone::Dim;
+          glow_box(s, x + 5.0f, y + 14.0f, 9, 9, tone_rgb(chip.tone), idle ? 0.55f : 1.0f, idle ? 0 : 5);
+          draw_text(s, kText2, x + dot, y, chip.label, idle ? kMuted : kFg, idle ? 0.7f : 0.9f);
+          x += dot + text_width(kText2, chip.label) + between;
+        }
+      };
+      const std::string song = m.music_artist.empty() ? m.music_title : m.music_title + " \xC2\xB7 " + m.music_artist;
+      if (compact) {
+        if (settled) {
+          // A clock that is on for hours moves a few pixels each minute, as the stock one does.
+          const int sx = clock ? (m.clock_minute * 7) % 9 - 4 : 0, sy = clock ? (m.clock_minute * 5) % 7 - 3 : 0;
+          centred(kBig, 173 + sy, clock ? m.clock_time : m.timer_text, kFg, night ? 0.55f : 0.96f, sx);
+          if (attention) {
+            centred(kText2, 264, m.attention, kGold, 0.96f);
+            centred(kText2, 296, m.attention_detail, kFg, 0.9f);
+          } else {
+            centred(kText2, 264 + sy, clock ? soften(m.clock_date) : m.timer_label, kMuted, night ? 0.6f : 0.95f, sx);
+            if (music && !night) playing(298, song, kFg, 0.8f);
+          }
+          if (!m.chips.empty() && !night) chips(336);
+        }
+      } else {
+        int y = kTextTop + 2;
+        const float ca = caption_alpha;
+        if (!speaking && ca > 0) centred(kText3, y, attention ? m.attention : m.headline, attention ? kGold : alarm ? kMint : kFg, 0.96f * ca);
+        y += kText3.line + 1;
+        const int max_lines = attention ? 2 : std::max<int>(1, std::min<int>(m.caption_lines, 2));
+        std::string detail = speaking || ca <= 0 ? std::string() : attention ? m.attention_detail : m.detail;
+        if (detail == m.headline) detail.clear();  // a status that only repeats the headline
+        std::vector<std::string> lines = wrap(kText2, detail, chord(y, y + max_lines * kText2.line));
+        if (static_cast<int>(lines.size()) > max_lines) {
+          if (speaking) {  // the reply's latest lines
+            lines.erase(lines.begin(), lines.end() - max_lines);
+          } else {
+            lines.resize(static_cast<size_t>(max_lines));
+            lines.back() += "\xE2\x80\xA6";
+          }
+        }
+        // What is playing stays under the name after the name has gone: it is why one looks.
+        if (music && m.detail.empty()) {
+          playing(y, m.music_title, kFg, 0.85f);
+          if (!m.music_artist.empty()) centred(kText2, y + kText2.line, m.music_artist, kMuted, 0.9f);
+        }
+        for (const std::string& line : lines) {
+          centred(kText2, y, line, speaking || attention ? kFg : kMuted, speaking ? 0.96f : attention ? 0.9f : ca);
+          y += kText2.line;
+        }
+        if (!m.hint.empty() && !speaking && !attention && ca > 0) centred(kText2, 372, m.hint, kMuted, 0.75f * ca);
+        if (resting && settled && !m.chips.empty()) chips(kChipsTop + 1);
       }
-      for (const std::string& line : lines) {
-        centred(kText2, y, line, speaking || attention ? kFg : kMuted, speaking ? 0.96f : attention ? 0.9f : ca);
-        y += kText2.line;
+    }
+    // The bars beside what is playing: a few steps a second, in their own small box.
+    if (eq_y_ >= 0) {
+      const uint32_t step = move ? static_cast<uint32_t>(t * 9) : 0;
+      if (redraw || step != eq_key_) {
+        eq_key_ = step;
+        const int y0 = eq_y_ + 3, y1 = eq_y_ + 23;
+        if (!redraw)
+          for (int y = y0; y < y1; ++y) s.clear_run(y, eq_x_ - 1, eq_x_ + 19);
+        for (int i = 0; i < 3; ++i) {
+          const float bh = move ? 5 + 13 * voice(step / 9.0f * 0.8f + i * 1.9f) : 7.0f + 4 * i;
+          glow_box(s, eq_x_ + 3.0f + i * 6.5f, y1 - 1 - bh / 2, 4, bh, kGold, 0.9f, 0);
+        }
+        mark(y0, y1);
       }
-      if (!m.hint.empty() && !speaking && !attention && ca > 0) centred(kText2, 372, m.hint, kMuted, 0.75f * ca);
-      if (!speaking) mark(top, bottom);
     }
   }
 
@@ -390,15 +533,34 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       else if (m.screen == Screen::Thinking || (m.screen == Screen::Responding && !speaking)) ring = Ring::Comet;
       else if (speaking) ring = Ring::Ticks;
     }
+    if (timing && m.timer_permille >= 0) ring = Ring::Arc;  // what is left of the timer
     uint32_t key = mix(29, static_cast<uint32_t>(ring));
     key = mix(key, (uint32_t(acc.r) << 16) | (uint32_t(acc.g) << 8) | acc.b);
     if (ring == Ring::Pulse) key = mix(key, static_cast<uint32_t>(level_ * 200));
     if (ring == Ring::Comet || ring == Ring::Ticks) key = mix(key, m.fine);
     // Something waits on the user: the still ring breathes, a few steps a second.
-    const bool breathe = attention && ring == Ring::Still;
-    const float breath = breathe ? 0.5f - 0.5f * std::cos(t * 2.2f) : 0.0f;
+    const bool breathe = (attention || alarm) && ring == Ring::Still && move;
+    const float breath = breathe ? 0.5f - 0.5f * std::cos(t * (alarm ? 7.0f : 2.2f)) : 0.0f;
     if (breathe) key = mix(key, static_cast<uint32_t>(breath * 10));
-    if (first || key != ring_key_) {
+    if (ring == Ring::Arc) key = mix(key, static_cast<uint32_t>(m.timer_permille));
+    key = mix(key, night);
+    // The still ring over rows [y0, y1): all of it, or the rows the clock's dot has left.
+    const float still_half = breathe ? 1.0f + 1.5f * breath : 1.0f;
+    const float still_alpha = breathe ? 0.35f + 0.6f * breath : alarm ? 0.9f : night ? 0.16f : 0.3f;
+    auto still = [&](int y0, int y1) {
+      const float rr = R - 8.0f, cy = h / 2.0f;
+      for (int y = std::max(0, y0); y < std::min(h, y1); ++y) {
+        const int16_t* b = &band_[static_cast<size_t>(y) * 4];
+        for (int run = 0; run < 2; ++run)
+          for (int x = b[run * 2]; x < b[run * 2 + 1]; ++x) {
+            const float d = std::fabs(std::hypot(x + 0.5f - C, y + 0.5f - cy) - rr) - still_half;
+            const float a = clamp01(0.5f - d);
+            if (a > 0) s.add(x, y, acc, static_cast<int>(a * still_alpha * 255));
+          }
+      }
+    };
+    const bool ring_redrawn = first || key != ring_key_;
+    if (ring_redrawn) {
       const bool same_comet = !first && ring == Ring::Comet && ring_ == Ring::Comet;
       ring_key_ = key;
       ring_ = ring;
@@ -427,14 +589,22 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       } else {
         clear_band(0, h);
         if (ring == Ring::Still) {
-          const float rr = R - 8.0f, half = breathe ? 1.0f + 1.5f * breath : 1.0f, alpha = breathe ? 0.35f + 0.6f * breath : 0.3f;
+          still(0, h);
+        } else if (ring == Ring::Arc) {
+          // A faint full circle, and over it what is left of the timer, clockwise from the top.
+          const float rr = R - 9.0f, left = clamp01(m.timer_permille / 1000.0f) * 2 * kPi;
           for (int y = 0; y < h; ++y) {
             const int16_t* b = &band_[static_cast<size_t>(y) * 4];
             for (int run = 0; run < 2; ++run)
               for (int x = b[run * 2]; x < b[run * 2 + 1]; ++x) {
-                const float d = std::fabs(std::hypot(x + 0.5f - C, y + 0.5f - cy) - rr) - half;
-                const float a = clamp01(0.5f - d);
-                if (a > 0) s.add(x, y, acc, static_cast<int>(a * alpha * 255));
+                const float px = x + 0.5f - C, py = y + 0.5f - cy;
+                const float off = std::fabs(std::hypot(px, py) - rr);
+                if (off > 4.5f) continue;
+                float a = clamp01(0.5f - (off - 1.0f)) * 0.2f;
+                float angle = std::atan2(px, -py);
+                if (angle < 0) angle += 2 * kPi;
+                if (angle <= left) a = std::max(a, clamp01(0.5f - (off - 2.5f)) * 0.95f);
+                if (a > 0) s.add(x, y, acc, static_cast<int>(a * 255));
               }
           }
         } else if (ring == Ring::Pulse) {
@@ -463,6 +633,25 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
           }
         }
         mark(0, h);
+      }
+    }
+      // The clock's seconds: a dot that goes round the ring, moved by redrawing only its rows.
+    const int sec = clock && ring == Ring::Still ? m.clock_second % 60 : -1;
+    if (ring_redrawn || sec != dot_sec_) {
+      if (!ring_redrawn && dot_y1_ > dot_y0_) {
+        clear_band(dot_y0_, dot_y1_);
+        still(dot_y0_, dot_y1_);
+        mark(dot_y0_, dot_y1_);
+      }
+      dot_sec_ = sec;
+      dot_y0_ = dot_y1_ = 0;
+      if (sec >= 0) {
+        const float at = sec * (2 * kPi / 60), rr = R - 8.0f;
+        const float x = C + std::sin(at) * rr, y = h / 2.0f - std::cos(at) * rr;
+        disc(s, x, y, 3.5f, kFg, night ? 0.5f : 0.95f, 4);
+        dot_y0_ = static_cast<int>(y - 9);
+        dot_y1_ = static_cast<int>(y + 10);
+        mark(dot_y0_, dot_y1_);
       }
     }
   }

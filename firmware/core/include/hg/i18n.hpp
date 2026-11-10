@@ -238,6 +238,7 @@ namespace hg::i18n {
   X(HermesWaiting,          "Hermes is waiting for you") \
   X(AnsweredYes,            "Answered: yes") \
   X(AnsweredNo,             "Answered: no") \
+  X(TimesUp,                "Time's up") \
   X(Yes,                    "Yes") \
   X(No,                     "No") \
   X(Back,                   "Back") \

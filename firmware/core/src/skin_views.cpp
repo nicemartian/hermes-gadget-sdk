@@ -276,6 +276,10 @@ void draw_dash(Surface& s, const UiModel& m) {
       continue;
     }
     const int width = 276, left = kC - width / 2, right = kC + width / 2;  // one column: what the lowest row's glass holds
+    if (row.sub) {  // which one: a session's name under the row that counts them
+      draw_text(s, kText2, left + 24, ty, fit(kText2, row.label, width - 24), row.tone == DashRow::Tone::Warn ? kGold : kMuted, 0.95f);
+      continue;
+    }
     const Rgb tone = tone_rgb(row.tone);
     glow_box(s, left + 6.0f, static_cast<float>(cy), 10, 10, tone, 1.0f, 5);
     const std::string value = fit(kText2, row.value, width / 2);
@@ -329,7 +333,7 @@ uint32_t key(const UiModel& m) {
   k = mix(k, static_cast<uint32_t>(m.scroll));
   k = mix(k, static_cast<uint32_t>(m.lang));
   if (m.screen == Screen::Dashboard)
-    for (const DashRow& row : m.dash) k = mix(mix(mix(k, row.label), row.value), (static_cast<uint32_t>(row.tone) << 1) | row.heading);
+    for (const DashRow& row : m.dash) k = mix(mix(mix(k, row.label), row.value), (static_cast<uint32_t>(row.tone) << 2) | (row.sub << 1) | row.heading);
   return mix(k, (m.hero ? 1u : 0u) | (m.yes.empty() ? 0u : 2u) | (m.no.empty() ? 0u : 4u));
 }
 

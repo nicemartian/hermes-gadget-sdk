@@ -1350,6 +1350,13 @@ void App::h_dashboard(const json::Value& m) {
   const json::Value& tiles = m["tiles"];
   bool status_heading = false;
   std::string attention, attention_id, attention_more;
+  std::vector<UiModel::Chip> chips;
+  std::string music_title, music_artist;
+  // A tile "<name>.<n>" is a line under the tile "<name>": one of the sessions it sums up.
+  auto parent_of = [](const std::string& id) {
+    const size_t dot = id.rfind('.');
+    return dot == std::string::npos ? std::string() : id.substr(0, dot);
+  };
   std::vector<std::pair<std::string, std::string>> notes;  // (the tile it belongs to, its line)
   for (size_t i = 0; i < tiles.size() && i < kDashMaxEach; ++i) {
     const json::Value& t = tiles[i];
@@ -1360,9 +1367,21 @@ void App::h_dashboard(const json::Value& m) {
       notes.emplace_back(id.substr(0, id.size() - 5), value);
       continue;
     }
+    if (profile_.skin_eyes && t["id"].as_string() == "music") {  // what is playing: on the face, not in the list
+      music_title = t["label"].as_string();
+      music_artist = value;
+      continue;
+    }
     if (!status_heading) rows.push_back({tr(i18n::Msg::DashStatus), "", DashRow::Tone::Dim, true});
     status_heading = true;
     const DashRow::Tone tn = tone(t["state"].str_or(""));
+    if (profile_.skin_eyes && !parent_of(t["id"].as_string()).empty()) {
+      DashRow row{t["label"].as_string(), "", tn, false};
+      row.sub = true;
+      rows.push_back(std::move(row));
+      continue;
+    }
+    if (profile_.skin_eyes) chips.push_back({t["label"].as_string(), tn});
     if (tn == DashRow::Tone::Warn && attention.empty()) {
       attention = value.empty() ? t["label"].as_string() : t["label"].as_string() + " " + value;
       attention_id = t["id"].as_string();
@@ -1373,6 +1392,9 @@ void App::h_dashboard(const json::Value& m) {
     if (!attention.empty() && note.first == attention_id) attention_more = note.second;
   attention_ = std::move(attention);
   attention_detail_ = std::move(attention_more);
+  chips_ = std::move(chips);
+  music_title_ = std::move(music_title);
+  music_artist_ = std::move(music_artist);
   dash_rows_ = std::move(rows);
   dash_headline_ = waiting ? tr(i18n::Msg::NWaiting, {std::to_string(waiting)})
                    : busy  ? tr(i18n::Msg::NBusy, {std::to_string(busy)})
@@ -2542,6 +2564,11 @@ void App::update_model() {
   m.attention.clear();
   m.attention_detail.clear();
   m.cheer = cheer_;
+  m.chips.clear();
+  m.music_title.clear();
+  m.music_artist.clear();
+  m.timer_text.clear();
+  m.timer_label.clear();
   m.flash = false;
   m.battery = m.face_battery = -1;
   m.battery_charging = m.battery_low = false;
@@ -2634,7 +2661,7 @@ void App::update_model() {
     m.hint = tr(Msg::KeepPowerOn);
   } else if (alarm_) {
     m.screen = Screen::Alarm;
-    m.headline = tr(Msg::TimerDone);
+    m.headline = tr(profile_.skin_eyes ? Msg::TimesUp : Msg::TimerDone);
     m.detail = timer_label_;
     m.hint = profile_.touch_screen ? std::string(tr(Msg::TapScreenToStop)) : tr(Msg::ButtonToStop, {talk});
     m.flash = alarm_flash();
@@ -2894,6 +2921,7 @@ void App::update_model() {
                          std::to_string(wall_.day)});
       m.clock_minute = wall_.minute;
       m.clock_second = wall_.second;
+      m.clock_hour = wall_.hour;
       m.hero = false;
       m.name_target = false;
       m.hint.clear();
@@ -2913,9 +2941,18 @@ void App::update_model() {
     const std::string& waiting = attention_;
     if (waiting.empty() && attention_shown_) m.cheer = ++cheer_;
     attention_shown_ = !waiting.empty();
-    if (m.screen == Screen::Ready && m.hero) {
+    const bool resting = (m.screen == Screen::Ready && m.hero) || m.screen == Screen::Clock;
+    if (resting) {
       m.attention = waiting;
       m.attention_detail = attention_detail_;
+      m.chips = chips_;
+      m.music_title = music_title_;
+      m.music_artist = music_artist_;
+      if (timer_running_ && m.screen == Screen::Ready) {
+        m.timer_text = timer_left_text();
+        m.timer_label = timer_label_;
+        m.detail.clear();  // the face shows the time left large
+      }
     }
   }
   // Another screen took the answer's place: with the Eyes skin it does not come back when that one closes.

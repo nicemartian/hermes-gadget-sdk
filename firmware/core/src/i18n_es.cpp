@@ -225,6 +225,7 @@ const Entry kSpanish[] = {
     {Msg::HermesWaiting, "Hermes espera tu respuesta"},
     {Msg::AnsweredYes, "Respondiste: sí"},
     {Msg::AnsweredNo, "Respondiste: no"},
+    {Msg::TimesUp, "Se acabó el tiempo"},
     {Msg::Yes, "Sí"},
     {Msg::No, "No"},
     {Msg::Back, "Atrás"},

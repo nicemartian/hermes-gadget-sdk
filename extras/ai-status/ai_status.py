@@ -4,7 +4,8 @@
 Reads only local session metadata (never conversation text):
   Claude Code  ~/.claude/sessions/<pid>.json   one file per running process, with `status`
   Codex        ~/.codex/sessions/**/rollout-*.jsonl   the last task event of recent sessions
-and sets the tiles `claude` and `codex` with `hermes gadget tile set`, only when one changed.
+and sets the tiles `claude` and `codex` with `hermes gadget tile set` when one changed, and once a
+minute otherwise. The tiles expire after two minutes, so they vanish if this stops running.
 
 Run it every 10-15 seconds (launchd StartInterval), or once by hand:
   python3 ai_status.py --dry-run     print what it would set, change nothing
@@ -25,6 +26,8 @@ DONE_SHOWN_S = 10 * 60      # "done" stays up this long after a task ends, then 
 CODEX_RECENT_S = 24 * 3600  # sessions older than this are not looked at
 CODEX_STALE_S = 30 * 60     # a task "started" this long ago with no file activity is not working
 TAIL_BYTES = 256 * 1024
+TILE_TTL_S = 120            # a tile nobody refreshes goes away: no stale "working" when this stops
+REFRESH_S = 60              # an unchanged tile is set again this often, well inside its TTL
 
 
 def alive(pid):
@@ -109,7 +112,7 @@ def codex_tile(now):
 
 
 def set_tile(hermes, name, label, value, state):
-    cmd = [hermes, "gadget", "tile", "set", name, value, "--label", label]
+    cmd = [hermes, "gadget", "tile", "set", name, value, "--label", label, "--ttl", str(TILE_TTL_S)]
     if state:
         cmd += ["--state", state]
     return subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=60)
@@ -138,13 +141,14 @@ def main():
         last = {}
     changed = False
     for name, (label, value, state) in tiles.items():
-        if last.get(name) == [value, state]:
-            continue
+        was = last.get(name)
+        if isinstance(was, list) and was[:2] == [value, state] and len(was) > 2 and 0 <= now - was[2] < REFRESH_S:
+            continue  # unchanged and set recently
         r = set_tile(args.hermes, name, label, value, state)
         if r.returncode != 0:
             sys.stderr.write("ai_status: %s: %s\n" % (name, r.stderr.decode("utf-8", "replace").strip()))
             continue  # try again next run
-        last[name] = [value, state]
+        last[name] = [value, state, now]
         changed = True
     if changed:
         os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)

@@ -2646,6 +2646,17 @@ void App::update_model() {
     }
   }
 
+  // The Eyes skin's own mark at the foot of the resting face: whatever the indicator setting says,
+  // it shows once the cell is getting low and nothing is charging it.
+  m.battery_mark = -1;
+  m.battery_mark_low = false;
+  if (profile_.skin_eyes && power_status_ && power_status_->external_power != true && power_status_->charging != true) {
+    if (const auto percent = display_battery_percent()) {
+      m.battery_mark_low = *percent <= low_battery_level();
+      if (*percent <= 30 || m.battery_mark_low) m.battery_mark = static_cast<int8_t>(std::min<int>(*percent, 100));
+    }
+  }
+
   switch (phase_) {
     case Phase::NoNetwork:
     case Phase::Boot: m.link = Link::Offline; break;

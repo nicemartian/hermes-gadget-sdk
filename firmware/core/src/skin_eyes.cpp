@@ -440,8 +440,8 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
     key = mix(mix(key, m.music_title), m.music_artist);
     for (const UiModel::Chip& chip : m.chips) key = mix(mix(key, chip.label), static_cast<uint32_t>(chip.tone));
     key = mix(key, static_cast<uint32_t>((drift_x + 8) * 16 + drift_y + 8));
-    const bool battery = resting && m.battery >= 0 && (m.battery_low || (m.battery <= 30 && !m.battery_charging));
-    key = mix(key, battery ? 256u + static_cast<uint32_t>(m.battery) + (m.battery_low ? 128u : 0u) : 0u);
+    const bool battery = resting && m.battery_mark >= 0;
+    key = mix(key, battery ? 256u + static_cast<uint32_t>(m.battery_mark) + (m.battery_mark_low ? 128u : 0u) : 0u);
     const bool redraw = repaint || key != text_key_;
     if (redraw) {
       text_key_ = key;
@@ -548,14 +548,22 @@ std::vector<Rows> Eyes::draw(const UiModel& m, uint16_t* fb, int w, int h, bool 
       }
       if (battery && (!compact || (settled && !timing))) {
         // A small battery at the foot of the face, only when it is getting low: red when it is.
-        const Rgb c = m.battery_low ? Rgb{255, 107, 107} : kMuted;
-        const float bx = C + drift_x, by = 413;
-        glow_box(s, bx, by, 26, 13, c, 0.9f, 0);
-        glow_box(s, bx, by, 22, 9, Rgb{0, 0, 0}, 1.0f, 0);
-        for (int yy = static_cast<int>(by) - 5; yy <= static_cast<int>(by) + 4; ++yy) s.clear_run(yy, static_cast<int>(bx) - 11, static_cast<int>(bx) + 11);
-        const float fill = std::max(3.0f, 20.0f * m.battery / 100.0f);
-        glow_box(s, bx - 10 + fill / 2, by, fill, 7, c, 0.9f, 0);
-        glow_box(s, bx + 15, by, 3, 5, c, 0.9f, 0);
+        const Rgb c = m.battery_mark_low ? Rgb{255, 107, 107} : kMuted;
+        // An outline 26 by 13 with small corners, what is left in it as a bar, and the cap.
+        const float bx = C + drift_x - 1.0f, by = 413, hw = 13, hh = 6.5f, rad = 3.5f;
+        for (int yy = static_cast<int>(by - hh) - 1; yy <= static_cast<int>(by + hh) + 1; ++yy)
+          for (int xx = static_cast<int>(bx - hw) - 1; xx <= static_cast<int>(bx + hw) + 1; ++xx) {
+            const float qx = std::fabs(xx + 0.5f - bx) - (hw - rad), qy = std::fabs(yy + 0.5f - by) - (hh - rad);
+            const float ox = std::max(qx, 0.0f), oy = std::max(qy, 0.0f);
+            const float d = std::sqrt(ox * ox + oy * oy) + std::min(std::max(qx, qy), 0.0f) - rad;
+            const float a = clamp01(0.5f - d) * clamp01(d + 2.1f);  // a line 1.6 px wide, inside the edge
+            if (a > 0) s.add(xx, yy, c, static_cast<int>(a * 230));
+          }
+        const int fill = std::max(3, 20 * m.battery_mark / 100), fx = static_cast<int>(bx - hw) + 3;
+        for (int yy = static_cast<int>(by - hh) + 3; yy < static_cast<int>(by + hh) - 2; ++yy)
+          for (int xx = fx; xx < fx + fill; ++xx) s.add(xx, yy, c, 230);
+        for (int yy = static_cast<int>(by) - 2; yy <= static_cast<int>(by) + 2; ++yy)
+          for (int xx = static_cast<int>(bx + hw) + 1; xx < static_cast<int>(bx + hw) + 3; ++xx) s.add(xx, yy, c, 230);
       }
     }
     // A mark whose owner waits on the user pulses: its dot alone is redrawn, a few steps a second.

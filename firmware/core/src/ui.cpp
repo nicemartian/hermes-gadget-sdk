@@ -678,6 +678,23 @@ void Ui::draw_frame(const UiModel& m) {
   hashes[2] = content.get();
   hashes[3] = Hash().add(m.hint).get();
 
+  if (reply_view(m)) {
+    // The Eyes skin's answer view owns the whole UI square: one band, one hash.
+    const uint32_t key = Hash().val(m.screen).add(m.body).val(m.scroll).get();
+    if (!valid_ || !reply_valid_ || key != reply_key_) draw_bands(0, h, &Ui::draw_reply, m);
+    reply_key_ = key;
+    reply_valid_ = true;
+    hero_valid_ = false;
+    for (uint32_t& v : hash_) v = 0;  // every band repaints when the view ends
+    valid_ = true;
+    if (ring_moved) update_ring(moved);
+    return;
+  }
+  if (reply_valid_) {  // the view painted over every band
+    reply_valid_ = false;
+    for (uint32_t& v : hash_) v = 0;
+    hero_valid_ = false;
+  }
   if (m.hero) {
     // Hero mode: top bar, one mascot band, bottom bar.
     for (int i : {0, 3}) {
@@ -978,7 +995,46 @@ void Ui::draw_header(Canvas& c, const UiModel& m) {
   if (!skin_on_) c.fill_rect(4 * s, y0 + hh - 1, info_.width - 8 * s, 1, kFaint);
 }
 
+bool Ui::reply_view(const UiModel& m) const {
+  return skin_on_ && !m.hero && !m.qr && !m.color_test && !m.body.empty() &&
+         (m.screen == Screen::Ready || m.screen == Screen::Responding);
+}
+
+namespace {
+// The answer view's text: one scale up, with air between the lines.
+int reply_pitch(int s) { return Canvas::line_height(s + 1) + 2 * s; }
+}  // namespace
+
+int Ui::body_cols(const UiModel& m) const {
+  // One column short: the wrap measures in the body font's widths, the larger font's run a little wider.
+  return reply_view(m) ? std::max(4, cols_for(info_.width - 8 * layout_.scale, layout_.scale + 1) - 1) : layout_.body_cols;
+}
+
+void Ui::draw_reply(Canvas& c, const UiModel& m) {
+  const int s = layout_.scale, hs = s + 1, w = info_.width, h = info_.height;
+  const int pitch = reply_pitch(s), rows = body_rows(m);
+  c.fill_rect(0, 0, w, h, bg_);
+  const auto lines = wrap_text(m.body, body_cols(m));
+  const int total = static_cast<int>(lines.size());
+  const int max_first = std::max(0, total - rows);
+  const int first = m.scroll < 0 ? max_first : std::min(m.scroll, max_first);
+  const int shown = std::min(rows, total - first);
+  // The lines' block sits in the middle of the glass; the larger font's own line is shorter than the pitch.
+  int y = (h - shown * pitch) / 2 + (pitch - Canvas::line_height(hs)) / 2;
+  for (int i = 0; i < shown; ++i, y += pitch) {
+    const std::string& line = lines[static_cast<size_t>(first + i)];
+    c.text(std::max(0, (w - Canvas::text_width(line, hs)) / 2), y, line, hs, kText);
+  }
+  if (total > rows) {  // where this page is in the answer: a short mark under the text
+    const int track = 24 * s, tx = (w - track) / 2, ty = h - 2 * s;
+    const int thumb = std::max(4 * s, track * rows / total);
+    c.fill_rect(tx, ty, track, s, kFaint);
+    c.fill_rect(tx + (track - thumb) * first / std::max(1, max_first), ty, thumb, s, kDim);
+  }
+}
+
 int Ui::body_rows(const UiModel& m) const {
+  if (reply_view(m)) return std::max(1, (info_.height - 4 * layout_.scale) / reply_pitch(layout_.scale));
   int rows = layout_.body_rows;
   if (m.detail.empty()) return rows;
   int detail = static_cast<int>(wrap_text(m.detail, layout_.body_cols).size());

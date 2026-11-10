@@ -212,6 +212,10 @@ class Ui {
   void flush(int y0, int y1);
   // Body text rows visible on a text screen for this model (after detail lines).
   int body_rows(const UiModel& m) const;
+  // The columns a body line wraps to on this screen (the Eyes skin's answer view sets larger text).
+  int body_cols(const UiModel& m) const;
+  // The Eyes skin's answer view: nothing but the reply, larger and centred.
+  bool reply_view(const UiModel& m) const;
   // Dashboard rows that fit the content band.
   int dash_rows() const;
   // The largest size the Ready screen draws the face at (one caption line, no name panel): a colour face
@@ -308,6 +312,7 @@ class Ui {
   };
   HeroGeom hero_geom(const UiModel& m) const;
   void draw_hero(Canvas& c, const UiModel& m);
+  void draw_reply(Canvas& c, const UiModel& m);
   // Rows [y0, y1) that hero animations may touch for this screen.
   void hero_anim_rows(const UiModel& m, int& y0, int& y1) const;
   // Round panels: the edge ring (set_ring derives what its pixels need once per frame;
@@ -340,6 +345,8 @@ class Ui {
   uint32_t hero_static_ = 0, hero_anim_ = 0;
   uint32_t battery_hash_ = 0;
   bool hero_valid_ = false;
+  bool reply_valid_ = false;
+  uint32_t reply_key_ = 0;
   bool valid_ = false;
   // frame timing (measure)
   FrameStats* stats_ = nullptr;

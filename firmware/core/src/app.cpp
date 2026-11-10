@@ -1983,7 +1983,7 @@ void App::scroll_body(int delta) {
   const std::string& body = card ? card_body_ : reply_;
   if (body.empty() || !ui_) return;
   int& pos = card ? card_scroll_ : scroll_;
-  int total = static_cast<int>(wrap_text(body, ui_->layout().body_cols).size());
+  int total = static_cast<int>(wrap_text(body, ui_->body_cols(model_)).size());
   int max_first = std::max(0, total - ui_->body_rows(model_));
   int cur = pos < 0 ? max_first : std::min(pos, max_first);
   pos = std::max(0, std::min(max_first, cur + delta));
@@ -2015,7 +2015,7 @@ bool App::turn_page() {
   }
   if (!pos) return false;
   const int rows = ui_->body_rows(model_);
-  const int total = static_cast<int>(wrap_text(*body, ui_->layout().body_cols).size());
+  const int total = static_cast<int>(wrap_text(*body, ui_->body_cols(model_)).size());
   const int max_first = std::max(0, total - rows);
   if (*pos >= max_first) return false;
   *pos = std::min(max_first, *pos + std::max(1, rows - 1));  // keep one line of context

@@ -19,6 +19,7 @@ def main() -> int:
     p.add_argument("--device", default=os.environ.get("GADGET_DEVICE", ""), help="device id (hg-...)")
     p.add_argument("--home", default=os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
     p.add_argument("--no-wait", action="store_true", help="queue the card and return at once")
+    p.add_argument("--wake", action="store_true", help="light a dark screen for the card (otherwise it waits for the next wake)")
     p.add_argument("--ask", action="store_true",
                    help="ask a yes/no question instead: prints yes or no; exit 0 yes, 1 no, 3 no answer")
     a = p.parse_args()
@@ -31,6 +32,8 @@ def main() -> int:
     req_id = uuid.uuid4().hex
     req = {"device": a.device, "kind": "ask" if a.ask else "card", "at": time.time(), "title": a.title.strip()[:64],
            "text": a.text.strip()[:600], "seconds": max(5, min(a.seconds, 300)) if a.ask else max(0, min(a.seconds, 3600))}
+    if a.wake and not a.ask:
+        req["wake"] = True
     fd, tmp = tempfile.mkstemp(dir=inbox, prefix=".req.", suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(req, f)

@@ -77,6 +77,8 @@ class Desk:
             except (TypeError, ValueError):
                 seconds = 20
             req.update(title=title, text=text, seconds=seconds)
+            if fields.get("wake") is True:  # light a dark screen for it, instead of holding it until the screen wakes
+                req["wake"] = True
         elif kind == "ask":
             # A yes/no question from a script on this computer (a coding agent's permission hook, say).
             title = str(fields.get("title") or "").strip()[:MAX_TITLE]

@@ -997,7 +997,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
             if req["kind"] == "card":
                 title = textfmt.for_device(str(req.get("title") or ""), session.charset)
                 text = textfmt.for_device(str(req.get("text") or ""), session.charset)
-                shown = await session.show_card(title, text, int(req.get("seconds") or 0))
+                shown = await session.show_card(title, text, int(req.get("seconds") or 0), wake=req.get("wake") is True)
                 return {"ok": True, "held": shown is False}
             names = {a["name"] for a in session.actions}
             if req["action"] not in names:

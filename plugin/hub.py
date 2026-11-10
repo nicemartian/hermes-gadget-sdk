@@ -630,9 +630,9 @@ class DeviceSession:
                 if self.paired:  # an unpaired device dropped it, and the hub forgot it
                     self.thumb_hashes[profile] = digest
 
-    async def show_card(self, title: str, body: str, ttl_s: float = 15) -> bool:
-        """Show a card. False when it is held until the screen lights up."""
-        if self._hold_view(("card", title, body), ttl_s):
+    async def show_card(self, title: str, body: str, ttl_s: float = 15, wake: bool = False) -> bool:
+        """Show a card. False when it is held until the screen lights up; ``wake`` lights a dark screen for it."""
+        if not wake and self._hold_view(("card", title, body), ttl_s):
             return False
         await self.send_json(protocol.message("display", title=title, body=body, ttl_s=ttl_s))
         return True

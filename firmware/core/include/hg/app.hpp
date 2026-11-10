@@ -73,6 +73,8 @@ struct DeviceProfile {
   bool frame_stats = false;
   // The Eyes skin (hg/skin.hpp) draws the mascot screens: round panels with a whole framebuffer.
   bool skin_eyes = false;
+  // A press shorter than this is dropped as a slip rather than sent as a recording (0: the default).
+  uint32_t min_utterance_ms = 0;
   uint32_t frame_budget_us = FrameStats::kDefaultBudgetUs;
   uint32_t frame_log_ms = 10000;
   // Room for a face from Hermes (docs/protocol.md#faces): about 27 KB, and its message at once.

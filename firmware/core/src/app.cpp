@@ -1604,7 +1604,7 @@ void App::on_button(Button button, bool pressed, bool touch) {
         }
         start_listening(talk_mode_ == TalkMode::Tap);
       } else if (mode_ == Mode::Listening && !hands_free_) {
-        if (now() - mode_since_ < kMinUtteranceMs) {
+        if (now() - mode_since_ < (profile_.min_utterance_ms ? profile_.min_utterance_ms : kMinUtteranceMs)) {
           cancel_listening("too short");
           set_hint_flash(profile_.touch_screen && touch_talk_ ? std::string(tr(i18n::Msg::HoldScreenWhileSpeaking))
                                                : tr(i18n::Msg::HoldButtonWhileSpeaking, {control(profile_.talk_label)}));

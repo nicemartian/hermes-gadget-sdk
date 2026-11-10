@@ -566,6 +566,7 @@ extern "C" void app_main(void) {
 #endif
 #if CONFIG_HG_SKIN_EYES
   profile.skin_eyes = true;
+  profile.min_utterance_ms = 800;  // a stray half-second tap interrupted the reply in progress
 #endif
   profile.frame_budget_us = CONFIG_HG_FRAME_BUDGET_US;
   profile.frame_log_ms = CONFIG_HG_FRAME_LOG_S * 1000u;

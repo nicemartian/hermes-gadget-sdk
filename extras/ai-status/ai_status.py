@@ -155,7 +155,7 @@ def codex_tile(now):
     if working:
         return ("working" if working == 1 else "%d working" % working), "ok"
     if newest_done and now - newest_done < DONE_SHOWN_S:
-        return "done", "warn"  # finished a moment ago: worth a look
+        return "done", "ok"  # finished a moment ago; not a warning, nothing waits on the user
     return ("idle" if seen else "off"), None
 
 

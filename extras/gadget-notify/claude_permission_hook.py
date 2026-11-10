@@ -31,8 +31,9 @@ def describe(tool: str, args: dict):
         text = str(args.get("url") or args.get("query") or "")
     else:
         text = json.dumps(args, ensure_ascii=False, sort_keys=True)
-    text = " ".join(text.split())
-    if not text or len(text) > MAX_SHOWN:
+    # Shown exactly as it would run, or not at all: a question that reflowed a command's lines or
+    # dropped a character the screen cannot draw would be approving something else.
+    if not text or len(text) > MAX_SHOWN or text != " ".join(text.split()) or not text.isprintable():
         return None
     return text
 

@@ -227,27 +227,39 @@ def codex_tile(now):
     return ("idle" if seen else "off"), None
 
 
-def music_tile():
+MUSIC_RETRY_S = 300  # after Spotify did not answer, it is left alone this long
+
+
+def music_tile(last, now):
     """(title, artist, None) for what Spotify is playing on this Mac, or None.
 
     Spotify is asked only while it is already running, so this never starts it. The first time,
-    macOS asks whether this script may control Spotify; until that is allowed there is no tile.
+    macOS asks whether this script may control Spotify; until that is answered the call hangs,
+    so after a failure Spotify is left alone for a few minutes (`last` remembers until when).
     """
     if sys.platform != "darwin" or not shutil.which("osascript"):
         return None
+    try:
+        if now < float(last.get("_music_retry_at") or 0):
+            return None
+    except (TypeError, ValueError):
+        pass
+    why = ""
     try:
         if subprocess.run(["pgrep", "-xq", "Spotify"], timeout=5).returncode != 0:
             return None
         script = ('tell application "Spotify" to if player state is playing then '
                   'return (name of current track) & "\n" & (artist of current track)')
-        r = subprocess.run(["osascript", "-e", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8)
+        r = subprocess.run(["osascript", "-e", script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=4)
+        if r.returncode != 0:  # most often -1743: this script may not control Spotify
+            why = r.stderr.decode("utf-8", "replace").strip()[:200] or "osascript failed"
+    except subprocess.TimeoutExpired:
+        why = "no answer; macOS may be waiting for you to allow control of Spotify"
     except (OSError, subprocess.SubprocessError) as exc:
-        sys.stderr.write("ai_status: spotify: %s\n" % exc)
-        return None
-    if r.returncode != 0:
-        # Most often -1743: macOS has not been told this script may control Spotify.
-        if int(time.time()) % 600 < 20:  # said every ten minutes, not every run
-            sys.stderr.write("ai_status: spotify: %s\n" % r.stderr.decode("utf-8", "replace").strip()[:200])
+        why = str(exc)
+    if why:
+        sys.stderr.write("ai_status: spotify: %s (next try in %d s)\n" % (why, MUSIC_RETRY_S))
+        last["_music_retry_at"] = now + MUSIC_RETRY_S
         return None
     title, _, artist = r.stdout.decode("utf-8", "replace").strip().partition("\n")
     title, artist = " ".join(title.split()), " ".join(artist.split())
@@ -272,9 +284,6 @@ def main():
     now = time.time()
     tiles = claude_tiles(now)
     tiles["codex"] = ("ChatGPT",) + codex_tile(now)
-    song = music_tile()
-    if song:
-        tiles["music"] = song
     if args.dry_run:
         for name, (label, value, state) in tiles.items():
             print("%-11s %-26s %-26s %s" % (name, label, value, state or "-"))
@@ -285,8 +294,12 @@ def main():
             last = json.load(f)
     except (OSError, ValueError):
         last = {}
-    changed = False
-    for name in [n for n in last if n not in tiles]:
+    retry_was = last.get("_music_retry_at")
+    song = music_tile(last, now)
+    if song:
+        tiles["music"] = song
+    changed = last.get("_music_retry_at") != retry_was
+    for name in [n for n in last if n not in tiles and not n.startswith("_")]:
         # A session that stopped working or waiting: its row goes now, not when it times out.
         r = subprocess.run([args.hermes, "gadget", "tile", "clear", name], stdout=subprocess.DEVNULL,
                            stderr=subprocess.PIPE, timeout=60)

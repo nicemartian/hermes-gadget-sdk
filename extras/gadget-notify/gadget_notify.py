@@ -19,6 +19,8 @@ def main() -> int:
     p.add_argument("--device", default=os.environ.get("GADGET_DEVICE", ""), help="device id (hg-...)")
     p.add_argument("--home", default=os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
     p.add_argument("--no-wait", action="store_true", help="queue the card and return at once")
+    p.add_argument("--ask", action="store_true",
+                   help="ask a yes/no question instead: prints yes or no; exit 0 yes, 1 no, 3 no answer")
     a = p.parse_args()
     if not re.fullmatch(r"hg-[0-9a-f]{16}", a.device):
         print("set --device or GADGET_DEVICE to the gadget's id (hermes gadget devices)", file=sys.stderr)
@@ -27,28 +29,34 @@ def main() -> int:
     inbox, done = desk / "inbox", desk / "done"
     inbox.mkdir(parents=True, exist_ok=True)
     req_id = uuid.uuid4().hex
-    req = {"device": a.device, "kind": "card", "at": time.time(), "title": a.title.strip()[:64],
-           "text": a.text.strip()[:600], "seconds": max(0, min(a.seconds, 3600))}
+    req = {"device": a.device, "kind": "ask" if a.ask else "card", "at": time.time(), "title": a.title.strip()[:64],
+           "text": a.text.strip()[:600], "seconds": max(5, min(a.seconds, 300)) if a.ask else max(0, min(a.seconds, 3600))}
     fd, tmp = tempfile.mkstemp(dir=inbox, prefix=".req.", suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(req, f)
     os.replace(tmp, inbox / f"{req_id}.json")
-    if a.no_wait:
+    if a.no_wait and not a.ask:
         return 0
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + (req["seconds"] + 10 if a.ask else 10)
     while time.monotonic() < deadline:
         try:
             out = json.loads((done / f"{req_id}.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             time.sleep(0.15)
             continue
+        if a.ask:
+            if not out.get("ok"):
+                print(out.get("error") or "no answer", file=sys.stderr)
+                return 3
+            print(out.get("answer"))
+            return 0 if out.get("answer") == "yes" else 1
         if out.get("ok"):
             return 0
         print(out.get("error") or "the gadget did not show it", file=sys.stderr)
         return 1
     (inbox / f"{req_id}.json").unlink(missing_ok=True)
     print("the gateway did not answer; is it running?", file=sys.stderr)
-    return 1
+    return 3 if a.ask else 1
 
 
 if __name__ == "__main__":

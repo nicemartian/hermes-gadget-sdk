@@ -158,10 +158,10 @@ def claude_tiles(now=None):
         named = titles.get(str(first.get("sessionId") or ""))
         tiles["claude.note"] = ("Claude", display_name(first, titles) if named else where(first, now), None)
     elif busy:
-        tiles["claude"] = ("Claude", "working" if busy == 1 else "%d working" % busy, "ok")
+        pass  # the rows below say it, one per session: a "Claude: working" line above them would say it twice
     else:
         tiles["claude"] = ("Claude", "idle", None)
-    rows = [(s, asks(s), "warn") for s in waiting_sessions] + [(s, "working", "ok") for s in busy_sessions]
+    rows = [(s, "working", "ok") for s in busy_sessions]  # the one that waits is the `claude` tile itself
     for n, (s, value, state) in enumerate(rows[:SESSION_ROWS], 1):
         tiles["claude.%d" % n] = (display_name(s, titles), value, state)
     return tiles

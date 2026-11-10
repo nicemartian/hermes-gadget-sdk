@@ -724,10 +724,9 @@ void App::on_transport_text(std::string_view text) {
     static constexpr std::string_view kTurn[] = {"turn.start", "turn.end", "status", "reply.delta", "reply",
                                                   "audio.start", "audio.end", "audio.abort", "transcript"};
     if (static_cast<int32_t>(now() - quiet_reset_until_) >= 0) quiet_reset_until_ = 0;
-    else if (std::find(std::begin(kTurn), std::end(kTurn), type) != std::end(kTurn)) {
-      if (type == "turn.end") quiet_reset_until_ = 0;
-      return;
-    }
+    // Not over at turn.end: Hermes may say it in more than one message, the later ones outside the
+    // turn. The window ends by its time, or as soon as the user talks (start_listening).
+    else if (std::find(std::begin(kTurn), std::end(kTurn), type) != std::end(kTurn)) return;
   }
   for (const auto& r : kRoutes) {
     if (type == r.type) {

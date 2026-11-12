@@ -622,6 +622,8 @@ void App::send_hello() {
     if (ui_) {
       const UiLayout& l = ui_->layout();
       d.set("text_cols", l.body_cols).set("text_rows", l.body_rows);
+      // The Eyes skin shows a question of many lines, a page at a time: the host may send one this long.
+      if (profile_.skin_eyes && di.round) d.set("ask_chars", 700);
       // A display that holds only a band of rows refuses images (h_image_start),
       // so it doesn't offer them: the host then shows its unsupported-image notice.
       if (hal_.display->framebuffer_rows() == 0) {
@@ -1463,6 +1465,8 @@ void App::h_prompt(const json::Value& m) {
   prompt_id_ = id;
   prompt_title_ = m["title"].as_string();
   prompt_text_ = m["text"].as_string();
+  prompt_page_ = 0;
+  prompt_seen_ = false;
   prompt_since_ = now();
   double ttl = m["ttl_s"].as_number(0);
   prompt_until_ = ttl <= 0 ? 0 : now() + static_cast<uint32_t>(ttl * 1000);
@@ -1511,6 +1515,14 @@ void App::prompt_tap(int x, int y) {
   if (!ui_ || !prompt_showing()) return;
   const int hit = ui_->prompt_hit(model_, x, y);
   if (hit && prompt_armed(now())) answer_prompt(hit > 0);
+  else if (!hit) {
+    // A tap on the text of a question longer than the glass turns its page, round to the first again.
+    const int pages = ui_->prompt_pages(model_);
+    if (pages > 1) {
+      prompt_page_ = static_cast<uint8_t>((prompt_page_ + 1) % pages);
+      if (prompt_page_ == pages - 1) prompt_seen_ = true;
+    }
+  }
   update_model();
 }
 
@@ -1624,7 +1636,13 @@ void App::on_button(Button button, bool pressed, bool touch) {
     return;
   }
   if (profile_.swap_keys && button == Button::Talk && !touch) {  // the key does the power key's job
-    if (pressed) on_power_key();
+    // While it listens, the same key stops and throws the recording away: nothing is sent.
+    if (pressed && mode_ == Mode::Listening) {
+      wake_display();
+      cancel_listening("cancelled");
+      talk_held_ = false;
+      update_model();
+    } else if (pressed) on_power_key();
     return;
   }
   const auto bit = static_cast<uint8_t>(1u << static_cast<unsigned>(button));
@@ -2608,6 +2626,8 @@ void App::update_model() {
   m.progress_permille = -1;
   m.attention.clear();
   m.notice.clear();
+  m.prompt_page = 0;
+  m.prompt_seen = false;
   m.attention_detail.clear();
   m.cheer = cheer_;
   m.music_title.clear();
@@ -2835,6 +2855,8 @@ void App::update_model() {
     m.caption_lines = kPromptLines;
     m.headline = prompt_title_.empty() ? std::string(tr(Msg::HermesAsks)) : prompt_title_;
     m.detail = prompt_text_;
+    m.prompt_page = prompt_page_;
+    m.prompt_seen = prompt_seen_;
     m.yes = profile_.touch_screen ? std::string(tr(Msg::TapYes)) : tr(Msg::ButtonYes, {talk});
     if (profile_.has_cancel_button)
       m.no = profile_.touch_screen ? std::string(tr(Msg::SwipeNo)) : tr(Msg::ButtonNo, {cancel});

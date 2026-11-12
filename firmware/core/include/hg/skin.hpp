@@ -122,6 +122,9 @@ Hit hit(const UiModel& m, int x, int y, int w, int h);  // panel coordinates
 // Whether the question's text is on the glass in full. A question that is not can be refused
 // from the device but not agreed to.
 bool ask_whole(const UiModel& m);
+// The pages a question too long for the glass turns through (1: it is all there). Its last
+// page must have been shown (UiModel::prompt_seen) before it counts as whole.
+int ask_pages(const UiModel& m);
 // A long card's text: the columns it wraps to and the lines a page holds.
 int card_cols();
 int card_rows();

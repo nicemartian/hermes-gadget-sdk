@@ -121,6 +121,10 @@ struct UiModel {
   // and not charging, else -1.
   int8_t battery_mark = -1;
   bool battery_mark_low = false;
+  // Eyes skin, a question longer than the glass: the page it is on, and whether its last page
+  // has been on the glass (only then can it be agreed to from here).
+  uint8_t prompt_page = 0;
+  bool prompt_seen = false;
   std::string notice;  // Eyes skin, answer view: a notice shown in a pill under the answer
   // The last touch on the resting face: the eyes glance that way. `glance` goes up with each
   // one; the direction is in hundredths of the half panel, right and down positive.
@@ -281,6 +285,7 @@ class Ui {
   bool panel_view(const UiModel& m) const;
   int view_hit(const UiModel& m, int x, int y) const;
   bool prompt_whole(const UiModel& m) const;
+  int prompt_pages(const UiModel& m) const;
   bool title_hit(int x, int y) const {
     const int left = ox_ + (info_.width - layout_.title_w) / 2;
     // The Eyes skin's target reaches up to the glass edge and a little under the band: a finger

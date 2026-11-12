@@ -710,6 +710,21 @@ TEST("app: tap mode hears speech at the board's microphone level") {
   CHECK(d.fake.last("audio.cancel") != nullptr);
 }
 
+TEST("app: with swapped keys, the other key throws a recording away") {
+  hg::DeviceProfile swapped = Rig::profile("ws://hermes.local:8765/gadget");
+  swapped.swap_keys = true;
+  Rig r(swapped);
+  r.bring_online(true);
+  r.app.power_key_talk();
+  r.advance(1500);
+  CHECK(r.app.screen() == hg::Screen::Listening);
+  r.app.on_button(hg::Button::Talk, true);
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.fake.last("audio.cancel") != nullptr);
+  CHECK(r.fake.last("audio.end") == nullptr);
+  CHECK(r.app.screen() == hg::Screen::Ready);
+}
+
 TEST("app: a short tap is discarded instead of sent") {
   Rig r;
   r.bring_online(true);

@@ -180,6 +180,14 @@ def shown_command(command: str, display: dict) -> Optional[str]:
     the end of the last line it keeps.
     """
     command = (command or "").strip()
+    pages = display.get("ask_chars")
+    if isinstance(pages, int) and pages > 0:
+        # A device that turns the pages of a long question draws it line for line, spaces and
+        # all, and lets it be agreed to only after its last page was shown; what it has no glyph
+        # for it refuses itself. Tabs and other controls have no faithful drawing.
+        if not command or len(command) > pages or any(ch < " " and ch != "\n" for ch in command):
+            return None
+        return command
     cols = display.get("text_cols")
     if not command or not isinstance(cols, int) or len(command) > cols - 2 or "  " in command:
         return None
@@ -1309,6 +1317,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         prompt = self._take_prompt(session.device_id, prompt_id)
         if prompt is not None and prompt.host_only and yes:
             self._prompts.setdefault(session.device_id, []).insert(0, prompt)  # still open on the host
+            await session.send_notice("Too long to approve here. Approve it on the computer.", ttl_s=8)
         elif prompt is None or prompt.expired():
             await session.send_notice("That question has expired")
         elif prompt.kind == "desk":

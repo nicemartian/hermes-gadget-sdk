@@ -485,6 +485,8 @@ class App {
   // Holding the title (or round settings target) would open or close settings.
   bool settings_hold_live() const;
   // True when a press that started at `pressed_at` may answer the question.
+  uint8_t prompt_page_ = 0;   // Eyes skin: the page of a long question, and whether its last was shown
+  bool prompt_seen_ = false;
   bool prompt_armed(uint32_t pressed_at) const;
   void answer_prompt(bool yes);
   void clear_prompt();

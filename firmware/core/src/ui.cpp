@@ -503,6 +503,8 @@ int Ui::view_hit(const UiModel& m, int x, int y) const {
   }
 }
 
+int Ui::prompt_pages(const UiModel& m) const { return panel_view(m) && m.screen == Screen::Prompt ? skin::view::ask_pages(m) : 1; }
+
 bool Ui::prompt_whole(const UiModel& m) const { return !panel_view(m) || m.screen != Screen::Prompt || skin::view::ask_whole(m); }
 
 void Ui::draw_view(const UiModel& m) {

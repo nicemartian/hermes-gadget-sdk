@@ -245,6 +245,7 @@ namespace hg::i18n {
   X(Back,                   "Back") \
   X(TooLongToShow,          "Can't show all of this") \
   X(AnswerElsewhere,        "Too long: answer on the computer") \
+  X(TapForMore,             "tap the text for more") \
   X(Image,                  "Image") \
   /* Ready screen */ \
   X(Ready,                  "Ready") \

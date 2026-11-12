@@ -232,6 +232,7 @@ const Entry kSpanish[] = {
     {Msg::Back, "Atrás"},
     {Msg::TooLongToShow, "No cabe entero"},
     {Msg::AnswerElsewhere, "Muy largo: responde en el ordenador"},
+    {Msg::TapForMore, "toca el texto para seguir"},
     {Msg::Image, "Imagen"},
     // Ready screen
     {Msg::Ready, "Listo"},

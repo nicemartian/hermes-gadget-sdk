@@ -34,32 +34,39 @@ constexpr int kAskBottom = 316, kAskPitch = 26;
 constexpr int kButtonY = 326, kButtonH = 58, kButtonW = 122, kButtonGap = 10;
 
 // Word wrap where each line has its own width (the glass narrows away from the middle). A word
-// wider than its line breaks inside rather than being cut, and nothing is dropped: what the
+// wider than its line breaks inside rather than being cut, and nothing is dropped but the one
+// space a line breaks at: runs of spaces and a line's indent are drawn as they are, so what the
 // question shows is what gets answered.
-std::vector<std::string> wrap_rows(const Font& f, std::string_view t, int top, int pitch) {
+std::vector<std::string> wrap_rows(const Font& f, std::string_view t, int top, int pitch, int column = 0) {
   std::vector<std::string> lines;
   std::string line;
-  auto width = [&] { return chord(top + static_cast<int>(lines.size()) * pitch, top + static_cast<int>(lines.size()) * pitch + f.line); };
+  auto width = [&] {  // `column`: every line that wide, for text set in a column
+    if (column > 0) return column;
+    const int row = static_cast<int>(lines.size());
+    return chord(top + row * pitch, top + row * pitch + f.line);
+  };
   auto flush = [&] {
     lines.push_back(line);
     line.clear();
   };
   size_t i = 0;
+  bool fresh = true;  // at the start of a line of the text itself: its indent is kept
   while (i <= t.size()) {
     if (i == t.size() || t[i] == '\n') {
       flush();
+      fresh = true;
       ++i;
       continue;
     }
-    if (t[i] == ' ') {
-      ++i;
-      continue;
-    }
+    size_t gap = 0;
+    while (i < t.size() && t[i] == ' ') ++gap, ++i;
+    if (i == t.size() || t[i] == '\n') continue;  // spaces at a line's end show nothing
     size_t j = i;
     while (j < t.size() && t[j] != ' ' && t[j] != '\n') ++j;
     std::string word(t.substr(i, j - i));
     i = j;
-    const std::string joined = line.empty() ? word : line + " " + word;
+    const std::string joined = line.empty() ? (fresh ? std::string(gap, ' ') : std::string()) + word : line + std::string(gap, ' ') + word;
+    fresh = false;
     if (text_width(f, joined) <= width()) {
       line = joined;
       continue;
@@ -101,6 +108,8 @@ struct Ask {
   int title_y = 0, top = 0, pitch = kAskPitch;
   const Font* font = &kText2;  // a short question is set larger
   std::vector<std::string> lines;
+  int pages = 1, page = 0;  // a long question turns pages: `lines` holds this page's
+  int column = 0;           // and the width of the column its lines are set in
 };
 
 Ask ask_layout(const UiModel& m) {
@@ -129,6 +138,21 @@ Ask ask_layout(const UiModel& m) {
     const int rows = (kAskBottom - a.top) / kAskPitch;
     if (static_cast<int>(a.lines.size()) <= rows) break;
     if (!eyes) a.whole = false;
+  }
+  if (!a.whole && drawable(kText2, m.detail)) {
+    // Too long for the glass at once: it turns pages (a tap on the text), the last row saying
+    // where it is, and counts as shown once its last page has been.
+    const int per_page = std::max(1, (kAskBottom - a.top) / kAskPitch - 1);
+    // Its lines start in one column, as wide as the glass is at the page's first and last rows:
+    // an indent means something in a command.
+    a.column = std::min(chord(a.top, a.top + kText2.line), chord(a.top + (per_page - 1) * kAskPitch, a.top + (per_page - 1) * kAskPitch + kText2.line));
+    std::vector<std::string> all = wrap_rows(kText2, m.detail, a.top, kAskPitch, a.column);
+    a.pages = std::max(1, (static_cast<int>(all.size()) + per_page - 1) / per_page);
+    a.page = std::min<int>(m.prompt_page, a.pages - 1);
+    const size_t first = static_cast<size_t>(a.page) * per_page;
+    a.lines.assign(all.begin() + static_cast<long>(first), all.begin() + static_cast<long>(std::min(all.size(), first + per_page)));
+    a.whole = m.prompt_seen;
+    return a;
   }
   if (!drawable(kText2, m.detail)) a.whole = false;
   if (!a.whole) {  // its last row says so
@@ -201,10 +225,17 @@ void draw_ask(Surface& s, const UiModel& m) {
   for (const std::string& line : a.lines) {
     // The last line in brackets says where the question comes from: quieter than the question.
     const bool aside = &line == &a.lines.back() && a.lines.size() > 1 && line.size() > 2 && line.front() == '(' && line.back() == ')';
-    draw_text(s, *a.font, kC - text_width(*a.font, line) / 2, y, line, aside ? kMuted : kFg, aside ? 1.0f : 0.96f);
+    const int x = a.pages > 1 ? kC - a.column / 2 : kC - text_width(*a.font, line) / 2;
+    draw_text(s, *a.font, x, y, line, aside && a.pages == 1 ? kMuted : kFg, aside && a.pages == 1 ? 1.0f : 0.96f);
     y += a.pitch;
   }
-  if (!a.whole) centred(s, kText2, y, i18n::text(m.lang, i18n::Msg::TooLongToShow), kRest);
+  if (a.pages > 1) {
+    const std::string at = std::to_string(a.page + 1) + "/" + std::to_string(a.pages);
+    const int foot = a.top + ((kAskBottom - a.top) / kAskPitch - 1) * kAskPitch;
+    centred(s, kText2, foot, a.page + 1 < a.pages ? at + "  " + i18n::text(m.lang, i18n::Msg::TapForMore) : at, kMuted);
+  } else if (!a.whole) {
+    centred(s, kText2, y, i18n::text(m.lang, i18n::Msg::TooLongToShow), kRest);
+  }
   if (!m.yes.empty()) {
     const bool on = a.whole;
     button(s, yes_box(m), i18n::text(m.lang, i18n::Msg::Yes), on ? kYes : kOff, on ? kWhite : kMuted);
@@ -538,6 +569,7 @@ uint32_t key(const UiModel& m) {
   k = mix(k, static_cast<uint32_t>(m.screen));
   k = mix(k, static_cast<uint32_t>(m.scroll));
   k = mix(k, static_cast<uint32_t>(m.lang));
+  k = mix(k, (static_cast<uint32_t>(m.prompt_page) << 1) | m.prompt_seen);
   if (m.screen == Screen::Dashboard) k = mix(k, m.attention);
   if (m.music_view) {
     k = mix(mix(mix(mix(k, m.music_title), m.music_artist), m.music_at), m.music_length);
@@ -603,6 +635,7 @@ Hit hit(const UiModel& m, int x, int y, int w, int h) {
 }
 
 bool ask_whole(const UiModel& m) { return ask_layout(m).whole; }
+int ask_pages(const UiModel& m) { return ask_layout(m).pages; }
 
 int card_cols() { return kCardWidth / 12; }  // the body font's columns are 12 px (text_units)
 int card_rows() { return (kCardBottom - kCardTop) / kCardPitch; }

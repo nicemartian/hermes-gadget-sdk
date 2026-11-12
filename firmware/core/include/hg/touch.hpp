@@ -52,6 +52,7 @@ class TouchGestures {
   enum class State : uint8_t { Idle, Pending, Settings, Picker, PickerDrag, Side, List, ListDrag, Camera, Talk, Swipe, Ignored };
   void press(Button b);
   void release(Button b);
+  bool view_tap();
 
   App& app_;
   Config cfg_;

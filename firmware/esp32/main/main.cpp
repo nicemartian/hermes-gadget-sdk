@@ -564,6 +564,14 @@ extern "C" void app_main(void) {
 #if CONFIG_HG_FRAME_STATS
   profile.frame_stats = true;
 #endif
+#if CONFIG_HG_SKIN_EYES
+  profile.skin_eyes = true;
+  profile.min_utterance_ms = 800;  // a stray half-second tap interrupted the reply in progress
+#endif
+  profile.fresh_session_idle_ms = static_cast<uint32_t>(CONFIG_HG_FRESH_SESSION_MIN) * 60000u;
+#if CONFIG_HG_SWAP_KEYS
+  profile.swap_keys = board.axp_power_key || board.pwr_key.enabled;
+#endif
   profile.frame_budget_us = CONFIG_HG_FRAME_BUDGET_US;
   profile.frame_log_ms = CONFIG_HG_FRAME_LOG_S * 1000u;
   profile.default_name = CONFIG_HG_DEFAULT_NAME;

@@ -71,6 +71,15 @@ struct DeviceProfile {
   // Frame timing (hg::FrameStats, the console's `perf` command): on from boot,
   // the frame budget, and how often a summary goes to the log (0: never).
   bool frame_stats = false;
+  // The Eyes skin (hg/skin.hpp) draws the mascot screens: round panels with a whole framebuffer.
+  bool skin_eyes = false;
+  // A press shorter than this is dropped as a slip rather than sent as a recording (0: the default).
+  uint32_t min_utterance_ms = 0;
+  // The TALK key and the power key trade jobs: the power key's short press starts a hands-free
+  // recording (and a second one sends it), and the TALK key darkens the screen or goes Back.
+  bool swap_keys = false;
+  // After this long without a turn the device asks for a fresh conversation, quietly (0: never).
+  uint32_t fresh_session_idle_ms = 0;
   uint32_t frame_budget_us = FrameStats::kDefaultBudgetUs;
   uint32_t frame_log_ms = 10000;
   // Room for a face from Hermes (docs/protocol.md#faces): about 27 KB, and its message at once.
@@ -164,6 +173,9 @@ class App {
   void close_settings();
   bool settings_open() const { return menu_ != Menu::Closed; }
   bool settings_title_hit(int x, int y) const;
+  // On the Eyes skin's sessions screen the title is a button: a tap opens settings, no hold needed.
+  // In settings it is the way back (open_settings closes them).
+  bool settings_tap_opens() const { return profile_.skin_eyes && (overlay_ == Overlay::Dashboard || settings_open()); }
   // Touch on the settings list (TouchGestures), in panel coordinates. While it is
   // live (open, no hardware check running), a press starts a touch; a drag scrolls
   // the list with the finger, or moves the selected row's slider when the press
@@ -243,6 +255,13 @@ class App {
   // answers or dismisses, and nothing there opens the microphone.
   bool touch_talk() const { return touch_talk_; }
   bool touch_presses_talk() const;
+  // The Eyes skin's question has two buttons: a tap answers only on one of them, never elsewhere.
+  bool prompt_buttons() const { return profile_.skin_eyes && profile_.touch_screen && prompt_showing(); }
+  void prompt_tap(int x, int y);
+  // A tap on one of the Eyes skin's own screens: 1 on its way back, 2 and up on a button of its own (view_action), else 0.
+  int view_hit(int x, int y) const { return ui_ && profile_.skin_eyes ? ui_->view_hit(model_, x, y) : 0; }
+  void view_action(int which = 2);
+  void touch_seen(int x, int y);  // a finger came down on the lit screen: the Eyes skin's face glances at it
   std::string agent_profile_name() const;
   // Returns true when this input only wakes a sleeping display.
   bool wake_display();
@@ -250,6 +269,7 @@ class App {
   // the settings menu it is Back: the menu closes and the screen stays lit.
   // Wi-Fi and the Hermes connection stay up.
   void on_power_key();
+  void power_key_talk();  // DeviceProfile::swap_keys: the power key's short press, as TALK
   // Dozing (System::set_dozing): the port's loop may wait this long for events.
   static constexpr uint32_t kDozeWaitMs = 100;
   // The longest recording; the recording buffer holds this much (RecordingBuffer::bytes_for).
@@ -465,6 +485,8 @@ class App {
   // Holding the title (or round settings target) would open or close settings.
   bool settings_hold_live() const;
   // True when a press that started at `pressed_at` may answer the question.
+  uint8_t prompt_page_ = 0;   // Eyes skin: the page of a long question, and whether its last was shown
+  bool prompt_seen_ = false;
   bool prompt_armed(uint32_t pressed_at) const;
   void answer_prompt(bool yes);
   void clear_prompt();
@@ -558,7 +580,7 @@ class App {
   // `language` is auto: follow the language Hermes sends in `welcome` (English until it does).
   bool lang_auto_ = false;
   std::optional<i18n::Lang> hermes_lang_;  // from the last `welcome` that named one this firmware has
-  enum class Menu : uint8_t { Closed, Volume, Brightness, TalkMode, TouchTalk, Profile, ProfileGrid, Microphone, Speaker, Display, Inputs,
+  enum class Menu : uint8_t { Closed, Volume, Speak, Brightness, TalkMode, TouchTalk, Profile, ProfileGrid, Microphone, Speaker, Display, Inputs,
                               Camera, Info, Power, BatteryAlert, BatteryAlertSound, ChargingNotice, ChargingSound, ChargedNotice, ChargedSound,
                               WifiDeepSleep, IdleTimer, TouchWake, FaceDownSleep, Clock, PowerOff, WifiSetup, Phone, Language, DoubleHome,
                               WakeTalk, Animation, SdLog, Back };
@@ -686,6 +708,9 @@ class App {
   bool sd_log_ = false;                // the `sd_log` setting
   bool wake_talk_ = false;            // the `wake_talk` setting
   bool touch_talk_ = true;            // the `touch_talk` setting
+  bool session_used_ = false;         // a turn ran since the last fresh conversation
+  uint32_t quiet_reset_until_ = 0;    // a quiet session.new is out: its confirmation is not shown until then
+  bool speak_ = true;                 // the `speak` setting: off shows replies as text alone
   bool reply_while_face_down_ = false;  // a reply arrived while dark; show it on the turn-over
   uint8_t wake_buttons_ = 0;
 
@@ -768,6 +793,7 @@ class App {
   uint32_t last_turn_rx_ = 0;
   std::string reply_;
   bool reply_shown_ = false;  // the whole text, not the caption, until the Responding screen ends
+  bool reply_spoke_ = false;  // this reply's audio has started (the Eyes skin holds the text back for it)
   // The talking face's caption, and the text and width it was wrapped from: rewrapped only when they change.
   std::string caption_, caption_text_;
   int caption_cols_ = 0;
@@ -813,6 +839,15 @@ class App {
   // a yes/no question from Hermes (confirmations, command approvals)
   std::string prompt_id_, prompt_title_, prompt_text_;
   uint32_t prompt_since_ = 0;
+  uint8_t cheer_ = 0;             // the Eyes skin smiles each time this goes up
+  bool attention_shown_ = false;  // a status tile was warning at the last model
+  // Now playing: the screen is open, and the track's position as the tile "music.pos" gave it.
+  bool music_open_ = false;
+  uint32_t music_pos_s_ = 0, music_len_s_ = 0, music_pos_at_ = 0, music_step_ = 0;
+  uint8_t glance_ = 0;
+  int8_t glance_x_ = 0, glance_y_ = 0;
+  std::string music_title_, music_artist_;         // the tile "music": label and value
+  std::string attention_, attention_detail_;  // the first warning tile: "Claude needs you", and the "<name>.note" tile's value
   uint32_t prompt_until_ = 0;  // 0 = until answered or withdrawn
 
   // transient messages
@@ -855,6 +890,7 @@ class App {
   std::vector<int16_t> beep_pcm_;  // built on the first beep
 
   // frame timing: the running statistics while `perf` is on, and the bench
+  uint32_t fine_at_ = 0;  // the skin's last fine frame (kFineMs)
   std::unique_ptr<FrameStats> frame_stats_;
   uint32_t frame_log_at_ = 0, frame_log_frames_ = 0;
   enum class Bench : uint8_t { None, Scroll, Mascot, Redraw, Settings };

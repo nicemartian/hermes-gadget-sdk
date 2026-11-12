@@ -41,6 +41,9 @@ class Canvas {
   void rect(int x, int y, int w, int h, uint16_t color);
   void fill_round_rect(int x, int y, int w, int h, int r, uint16_t color);
   void fill_circle(int cx, int cy, int r, uint16_t color);
+  // An anti-aliased w*h box of corner radius r centred on (cx, cy), with a soft halo `glow`
+  // pixels wide around it. Blends over what is there, so draw it on a cleared background.
+  void glow_box(int cx, int cy, int w, int h, int r, int glow, uint16_t color);
   void ring(int cx, int cy, int r, int thickness, uint16_t color);
   // The part of a ring facing right (dir > 0) or left (dir < 0), about +-55 degrees.
   void arc(int cx, int cy, int r, int thickness, int dir, uint16_t color);
@@ -62,6 +65,9 @@ class Canvas {
                int band_rows);
 
  private:
+  int text_pixel(int x, int y, std::string_view s, int scale, uint16_t color);
+  // Mixes `color` into the pixel at coverage a (0..15).
+  void blend(int x, int y, uint16_t color, int a);
   uint16_t encode(uint16_t c) const { return swap_ ? static_cast<uint16_t>((c >> 8) | (c << 8)) : c; }
   // The framebuffer rows this canvas can write: the clip rows clipped to the
   // rows the buffer holds. `true` when the window is empty.

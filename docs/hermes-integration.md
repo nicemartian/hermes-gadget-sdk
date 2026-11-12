@@ -34,6 +34,7 @@ platforms:
       path: /gadget
       speak_replies: true    # spoken replies for devices with a speaker
       auto_home: true        # first approved device becomes the gadget home channel
+      event_hook: ""         # a command run for each device event without notify: gets the name and the data (JSON)
       unauthorized_dm_behavior: pair
       # heartbeat_s: 20
       # max_utterance_s: 60

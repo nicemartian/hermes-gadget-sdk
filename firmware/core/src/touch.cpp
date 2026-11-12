@@ -13,6 +13,18 @@ constexpr uint32_t kTapMaxMs = 400;
 void TouchGestures::press(Button b) { app_.on_button(b, true, true); }
 void TouchGestures::release(Button b) { app_.on_button(b, false, true); }
 
+bool TouchGestures::view_tap() {
+  // The Eyes skin's own screens: the way back is a whole CANCEL tap, the screen's button its own action.
+  const int hit = app_.view_hit(x0_, y0_);
+  if (hit == 1) {
+    press(Button::Cancel);
+    release(Button::Cancel);
+  } else if (hit >= 2) {
+    app_.view_action(hit);
+  }
+  return hit != 0;
+}
+
 void TouchGestures::tick(uint32_t now_ms) {
   if (state_ == State::Settings && now_ms - t0_ >= 1000) {
     state_ = State::Ignored;
@@ -21,7 +33,7 @@ void TouchGestures::tick(uint32_t now_ms) {
   // With touch_talk off a still finger stays Pending where TALK would record: its lift is a tap
   // that does nothing there, and it can still become a swipe down.
   if (state_ == State::Pending && static_cast<int32_t>(now_ms - t0_) >= static_cast<int32_t>(cfg_.hold_ms) &&
-      app_.touch_presses_talk()) {
+      app_.touch_presses_talk() && !app_.prompt_buttons()) {
     state_ = State::Talk;
     press(Button::Talk);
   }
@@ -32,6 +44,11 @@ void TouchGestures::update(bool touching, int x, int y, uint32_t now_ms) {
     switch (state_) {
       case State::Pending:  // a quick tap
         if (from_clock_) break;  // Ready came back at touch-down; a tap does nothing else
+        if (app_.prompt_buttons()) {  // a question's buttons: a tap off them answers nothing
+          app_.prompt_tap(x0_, y0_);
+          break;
+        }
+        if (view_tap()) break;
         // A long press that didn't become TALK (touch_talk off) isn't a tap: it opens nothing on lift.
         if (!app_.touch_presses_talk() && static_cast<int32_t>(now_ms - t0_) >= static_cast<int32_t>(kTapMaxMs)) break;
         if (app_.show_reply_text()) break;  // the caption under the talking face gives way to the text
@@ -42,6 +59,10 @@ void TouchGestures::update(bool touching, int x, int y, uint32_t now_ms) {
         if (!app_.touch_presses_talk()) break;  // touch_talk off: only TALK records
         press(Button::Talk);
         release(Button::Talk);
+        break;
+      case State::Settings:  // lifted before the hold ran out: a tap, which opens settings where the title is a button
+        if (view_tap()) break;
+        if (app_.settings_tap_opens()) app_.open_settings();
         break;
       case State::Picker: app_.profile_tap(x0_, y0_); break;
       case State::List: app_.settings_tap(x0_, y0_); break;
@@ -69,6 +90,7 @@ void TouchGestures::update(bool touching, int x, int y, uint32_t now_ms) {
     if (app_.wake_display()) { state_ = State::Ignored; return; }
     app_.mark_reply_read();  // what was on screen, before a notice over the reply closes
     app_.close_notices_for_input();  // a low battery alert goes, and the touch acts on what is under it
+    app_.touch_seen(x, y);
     state_ = app_.profile_picker_open() ? State::Picker
               : !from_clock_ && app_.settings_title_hit(x, y) ? State::Settings
               : app_.settings_list_live() ? State::List

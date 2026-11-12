@@ -13,19 +13,37 @@ namespace {
 
 // The background on backlit panels; emissive panels use true black (Ui::bg_).
 constexpr uint16_t kBg = rgb565(10, 14, 20);
-constexpr uint16_t kBar = rgb565(24, 31, 42);
-constexpr uint16_t kText = rgb565(232, 238, 242);
-constexpr uint16_t kDim = rgb565(132, 146, 160);
-constexpr uint16_t kFaint = rgb565(52, 62, 76);
-constexpr uint16_t kAccent = rgb565(242, 179, 61);
-constexpr uint16_t kGreen = rgb565(61, 214, 140);
-constexpr uint16_t kBlue = rgb565(90, 169, 242);
-constexpr uint16_t kRed = rgb565(242, 95, 92);
-constexpr uint16_t kYellow = rgb565(242, 201, 76);
-constexpr uint16_t kGreenDim = rgb565(28, 92, 62);
-constexpr uint16_t kBlueDim = rgb565(52, 96, 140);
-constexpr uint16_t kAccentDim = rgb565(110, 82, 30);
-constexpr uint16_t kRedDim = rgb565(122, 44, 44);
+// The palette. The stock colours, until the Eyes skin swaps in its own (apply_palette),
+// so every screen shares the skin's colours.
+uint16_t kBar = rgb565(24, 31, 42);
+uint16_t kText = rgb565(232, 238, 242);
+uint16_t kDim = rgb565(132, 146, 160);
+uint16_t kFaint = rgb565(52, 62, 76);
+uint16_t kAccent = rgb565(242, 179, 61);
+uint16_t kGreen = rgb565(61, 214, 140);
+uint16_t kBlue = rgb565(90, 169, 242);
+uint16_t kRed = rgb565(242, 95, 92);
+uint16_t kYellow = rgb565(242, 201, 76);
+uint16_t kGreenDim = rgb565(28, 92, 62);
+uint16_t kBlueDim = rgb565(52, 96, 140);
+uint16_t kAccentDim = rgb565(110, 82, 30);
+uint16_t kRedDim = rgb565(122, 44, 44);
+
+void apply_palette(bool skin) {
+  kBar = skin ? rgb565(28, 25, 36) : rgb565(24, 31, 42);
+  kText = skin ? rgb565(236, 232, 241) : rgb565(232, 238, 242);
+  kDim = skin ? rgb565(143, 136, 156) : rgb565(132, 146, 160);
+  kFaint = skin ? rgb565(60, 54, 70) : rgb565(52, 62, 76);
+  kAccent = skin ? rgb565(255, 196, 107) : rgb565(242, 179, 61);
+  kGreen = skin ? rgb565(95, 224, 138) : rgb565(61, 214, 140);
+  kBlue = skin ? rgb565(165, 139, 255) : rgb565(90, 169, 242);
+  kRed = skin ? rgb565(255, 107, 107) : rgb565(242, 95, 92);
+  kYellow = skin ? rgb565(255, 196, 107) : rgb565(242, 201, 76);
+  kGreenDim = skin ? rgb565(30, 92, 56) : rgb565(28, 92, 62);
+  kBlueDim = skin ? rgb565(74, 60, 128) : rgb565(52, 96, 140);
+  kAccentDim = skin ? rgb565(112, 84, 40) : rgb565(110, 82, 30);
+  kRedDim = skin ? rgb565(122, 44, 48) : rgb565(122, 44, 44);
+}
 
 class Hash {
  public:
@@ -55,6 +73,22 @@ class Hash {
 // Columns are code points (font::length), and cuts fall between them.
 std::string fit(std::string_view s, int max_chars) {
   if (max_chars <= 0) return {};
+  if (skin::text_on()) {  // by the smooth fonts' widths
+    const int max = max_chars * 63;
+    if (skin::text_units(s) <= max) return std::string(s);
+    const int dots = skin::text_units("..");
+    size_t cut = 0;
+    int used = 0;
+    while (cut < s.size()) {
+      size_t next = cut;
+      font::next(s, next);
+      const int u = skin::text_units(s.substr(cut, next - cut));
+      if (used + u + dots > max) break;
+      used += u;
+      cut = next;
+    }
+    return std::string(s.substr(0, cut)) + "..";
+  }
   if (static_cast<int>(font::length(s)) <= max_chars) return std::string(s);
   if (max_chars <= 2) return std::string(s.substr(0, font::prefix(s, static_cast<size_t>(max_chars))));
   return std::string(s.substr(0, font::prefix(s, static_cast<size_t>(max_chars - 2)))) + "..";
@@ -178,6 +212,7 @@ EdgeRing edge_ring(const UiModel& m) {
         return r;
       }
       break;
+    case Screen::Prompt:  // the time left to answer, where the app says (the Eyes skin)
     case Screen::Updating:
       if (m.progress_permille >= 0) {
         level(m.progress_permille, kAccent, kAccentDim);
@@ -249,6 +284,15 @@ mascot::Frame mascot_frame(const UiModel& m) {
 
 // `b` (from mascot::pick) in `ink`, or the colour face at b's size, in b's frame.
 void draw_face(Canvas& c, int x, int y, const mascot::Bitmap& b, const mascot::Face* face, uint16_t ink) {
+  if (skin::text_on() && !(face && face->rgb565)) {
+    // The Eyes skin's face, in the mascot's square: the same two eyes as its hero screens
+    // (46 x 74, 112 apart, on a 190 square), shut for a blink.
+    const int n = b.size;
+    const int ew = std::max(4, n * 24 / 100), eh = b.frame == mascot::Frame::Blink ? std::max(3, n * 5 / 100) : std::max(6, n * 39 / 100);
+    const int cy = y + n / 2, half = n * 59 / 200;
+    for (int side : {-1, 1}) c.glow_box(x + n / 2 + side * half, cy, ew, eh, ew / 2, std::max(2, n / 9), ink);
+    return;
+  }
   if (face && face->rgb565) {
     const mascot::Band& band = face->band(b.frame);
     c.picture(x, y, b.size, face->rgb565, face->px, band.rgb565, band.y, band.rows);
@@ -424,6 +468,63 @@ Ui::Ui(Display& display)
 
 void Ui::invalidate() { valid_ = false; }
 
+void Ui::set_skin(bool on, uint32_t frame_ms) {
+  skin_on_ = on && panel_.round && display_.framebuffer_rows() == 0;
+  skin::set_text(skin_on_);  // every screen's text and colours, not only the skin's own
+  apply_palette(skin_on_);
+  if (skin_on_) bg_ = 0;  // one black for the face and the screens around it
+  eyes_.set_frame_ms(frame_ms);
+  valid_ = false;
+}
+
+bool Ui::skinned(const UiModel& m) const { return skin_on_ && skin::Eyes::wants(m); }
+
+void Ui::draw_skin(const UiModel& m) {
+  // The skin owns the whole panel, ring included, and says which rows it changed.
+  const bool full = !valid_ || full_face_ != FullFace::Skin;
+  full_face_ = FullFace::Skin;
+  valid_ = true;
+  for (const skin::Rows& r : eyes_.draw(m, display_.framebuffer(), panel_.width, panel_.height, panel_.swap_bytes, full))
+    send(r.y0, r.y1);
+}
+
+bool Ui::panel_view(const UiModel& m) const { return skin_on_ && skin::view::wants(m); }
+
+int Ui::view_hit(const UiModel& m, int x, int y) const {
+  if (skinned(m)) return skin::Eyes::button_hit(m, x, y, panel_.width, panel_.height);
+  if (!panel_view(m)) return 0;
+  switch (skin::view::hit(m, x, y, panel_.width, panel_.height)) {
+    case skin::view::Hit::Back: return 1;
+    case skin::view::Hit::Action: return 2;
+    case skin::view::Hit::Previous: return 3;
+    case skin::view::Hit::Next: return 4;
+    case skin::view::Hit::Close: return 5;
+    default: return 0;
+  }
+}
+
+int Ui::prompt_pages(const UiModel& m) const { return panel_view(m) && m.screen == Screen::Prompt ? skin::view::ask_pages(m) : 1; }
+
+bool Ui::prompt_whole(const UiModel& m) const { return !panel_view(m) || m.screen != Screen::Prompt || skin::view::ask_whole(m); }
+
+void Ui::draw_view(const UiModel& m) {
+  // One picture per model, like the clock face: the edge ring goes over it with each push.
+  const uint32_t key = skin::view::key(m);
+  if (valid_ && full_face_ == FullFace::View && key == face_hash_) return;
+  // A list that was already on the glass redraws and sends only its own rows.
+  int y0 = 0, y1 = panel_.height;
+  const bool list = skin::view::list_rows(m, panel_.height, y0, y1);
+  const bool list_only = list && view_list_ && valid_ && full_face_ == FullFace::View;
+  if (!list_only) y0 = 0, y1 = panel_.height;
+  view_list_ = list;
+  full_face_ = FullFace::View;
+  face_hash_ = key;
+  valid_ = true;
+  each_window(y0, y1, [&](int, int) {
+    skin::view::draw(m, display_.framebuffer(), panel_.width, panel_.height, panel_.swap_bytes, list_only);
+  });
+}
+
 Canvas Ui::canvas() {
   // UI row y is panel row y + oy_. The framebuffer holds panel rows starting at
   // frame_origin_, so row y lives at buffer row y + oy_ - frame_origin_, which is
@@ -531,7 +632,8 @@ void Ui::draw_frame(const UiModel& m) {
   // holds the rows a change would resend, so any change repaints it. Otherwise only the
   // band's pixels that changed go out, after whatever this frame draws (update_ring), and a
   // comet's step computes only the pixels it lights where it was or where it is now.
-  const EdgeRing ring = panel_.round ? edge_ring(m) : EdgeRing{};
+  const bool skin = skinned(m);  // the skin draws its own ring
+  const EdgeRing ring = panel_.round && !skin ? edge_ring(m) : EdgeRing{};
   if ((ring.kind == EdgeRing::Kind::None) != (ring_.kind == EdgeRing::Kind::None)) valid_ = false;
   if (ring != ring_ && display_.framebuffer_rows() > 0) valid_ = false;
   bool ring_moved = valid_ && ring != ring_;
@@ -544,6 +646,15 @@ void Ui::draw_frame(const UiModel& m) {
   const bool dot_moved = ring_moved && ring_.kind == EdgeRing::Kind::Ticks && ring.kind == EdgeRing::Kind::Ticks;
   const int32_t dot_was = ring_dot_y16_;
   set_ring(ring);
+  if (skin) {
+    draw_skin(m);
+    return;
+  }
+  if (panel_view(m)) {
+    draw_view(m);
+    if (ring_moved) update_ring(moved);
+    return;
+  }
   if (m.screen == Screen::Alarm) {
     draw_alarm(m);
     return;
@@ -610,6 +721,23 @@ void Ui::draw_frame(const UiModel& m) {
   hashes[2] = content.get();
   hashes[3] = Hash().add(m.hint).get();
 
+  if (reply_view(m)) {
+    // The Eyes skin's answer view owns the whole UI square: one band, one hash.
+    const uint32_t key = Hash().val(m.screen).add(m.body).add(m.notice).val(m.scroll).get();
+    if (!valid_ || !reply_valid_ || key != reply_key_) draw_bands(0, h, &Ui::draw_reply, m);
+    reply_key_ = key;
+    reply_valid_ = true;
+    hero_valid_ = false;
+    for (uint32_t& v : hash_) v = 0;  // every band repaints when the view ends
+    valid_ = true;
+    if (ring_moved) update_ring(moved);
+    return;
+  }
+  if (reply_valid_) {  // the view painted over every band
+    reply_valid_ = false;
+    for (uint32_t& v : hash_) v = 0;
+    hero_valid_ = false;
+  }
   if (m.hero) {
     // Hero mode: top bar, one mascot band, bottom bar.
     for (int i : {0, 3}) {
@@ -689,9 +817,14 @@ void Ui::draw_top(Canvas& c, const UiModel& m) {
     // behind it. The label line (2r + 4s .. 2r + 13s) fits the band.
     int r = std::max(2, 3 * s / 2 + 1);
     if (m.settings_hold) {
-      const char* control =
-          i18n::text(m.lang, m.screen == Screen::Settings ? i18n::Msg::BackToHermesTarget : i18n::Msg::SettingsTarget);
-      c.text((w - Canvas::text_width(control, s)) / 2, 2 * r + 4 * s, control, s, kDim);
+      // The Eyes skin's settings have the same way back as its other screens: a button a tap answers.
+      const bool button = skin_on_ && m.screen == Screen::Settings;
+      const char* control = i18n::text(m.lang, button ? i18n::Msg::Back
+                                                   : m.screen == Screen::Settings ? i18n::Msg::BackToHermesTarget
+                                                                                  : i18n::Msg::SettingsTarget);
+      const int tw = Canvas::text_width(control, s);
+      if (button) c.fill_round_rect((w - tw) / 2 - 6 * s, 2 * r + 2 * s, tw + 12 * s, layout_.top_h - 2 * r - 2 * s, 5 * s, kBar);
+      c.text((w - tw) / 2, 2 * r + 4 * s, control, s, button ? kText : kDim);
     }
     c.fill_circle(w / 2, s + r, r, dot);
     return;
@@ -895,15 +1028,81 @@ void Ui::draw_header(Canvas& c, const UiModel& m) {
   int r = hh / 2 - 2 * s;
   int cx = 4 * s + r;
   int cy = y0 + hh / 2;
-  draw_indicator(c, m, cx, cy, r);
   int tx = cx + r + 4 * s;
   int hs = s + 1;
   int cols = cols_for(info_.width - tx - 2 * s, hs);
-  c.text(tx, cy - (font::kGlyphHeight * hs) / 2, fit(m.headline, cols), hs, kText);
-  c.fill_rect(4 * s, y0 + hh - 1, info_.width - 8 * s, 1, kFaint);
+  const std::string head = fit(m.headline, cols);
+  if (skin_on_) {
+    // The Eyes skin centres the header like its hero captions: indicator and headline as one group.
+    const int shift = std::max(0, (info_.width - (tx + Canvas::text_width(head, hs))) / 2 - 2 * s);
+    cx += shift;
+    tx += shift;
+  }
+  draw_indicator(c, m, cx, cy, r);
+  c.text(tx, cy - (font::kGlyphHeight * hs) / 2, head, hs, kText);
+  if (!skin_on_) c.fill_rect(4 * s, y0 + hh - 1, info_.width - 8 * s, 1, kFaint);
+}
+
+bool Ui::reply_view(const UiModel& m) const {
+  return skin_on_ && !m.hero && !m.qr && !m.color_test && !m.body.empty() &&
+         (m.screen == Screen::Ready || m.screen == Screen::Responding);
+}
+
+namespace {
+// The answer view's text: one scale up, with air between the lines.
+int reply_pitch(int s) { return Canvas::line_height(s + 1) + 2 * s; }
+// A notice under the answer: a pill 21s tall whose top is 40s above the square's bottom edge.
+int reply_pill_top(int h, int s) { return h - 40 * s; }
+}  // namespace
+
+int Ui::body_cols(const UiModel& m) const {
+  if (panel_view(m) && m.screen == Screen::Card) return skin::view::card_cols();
+  // One column short: the wrap measures in the body font's widths, the larger font's run a little wider.
+  return reply_view(m) ? std::max(4, cols_for(info_.width - 8 * layout_.scale, layout_.scale + 1) - 1) : layout_.body_cols;
+}
+
+void Ui::draw_reply(Canvas& c, const UiModel& m) {
+  const int s = layout_.scale, hs = s + 1, w = info_.width, h = info_.height;
+  const int pitch = reply_pitch(s), rows = body_rows(m);
+  c.fill_rect(0, 0, w, h, bg_);
+  const bool pill = !m.notice.empty();
+  const int pill_y = reply_pill_top(h, s);
+  const auto lines = wrap_text(m.body, body_cols(m));
+  const int total = static_cast<int>(lines.size());
+  const int max_first = std::max(0, total - rows);
+  const int first = m.scroll < 0 ? max_first : std::min(m.scroll, max_first);
+  const int shown = std::min(rows, total - first);
+  // The lines' block sits in the middle of the glass; the larger font's own line is shorter than the pitch.
+  // With a notice under it, an answer that would reach the pill sits in the rows above it instead.
+  const int room = pill && (h + shown * pitch) / 2 > pill_y - 2 * s ? pill_y : h;
+  int y = (room - shown * pitch) / 2 + (pitch - Canvas::line_height(hs)) / 2;
+  for (int i = 0; i < shown; ++i, y += pitch) {
+    const std::string& line = lines[static_cast<size_t>(first + i)];
+    c.text(std::max(0, (w - Canvas::text_width(line, hs)) / 2), y, line, hs, kText);
+  }
+  if (pill) {  // a dot and one line, as wide as its text within the square
+    const int ph = 21 * s, dot = 3 * s, pad = 9 * s;
+    const std::string text = fit(m.notice, cols_for(w - 12 * s - 2 * pad - 3 * dot, s));
+    const int tw = Canvas::text_width(text, s), pw = std::max(112 * s, tw + 2 * pad + 3 * dot), px = (w - pw) / 2;
+    c.fill_round_rect(px, pill_y, pw, ph, ph / 2, kBar);
+    const int tx = px + (pw - tw - 3 * dot) / 2 + 3 * dot;
+    c.fill_circle(tx - 2 * dot, pill_y + ph / 2, dot, kAccent);
+    c.text(tx, pill_y + (ph - font::kGlyphHeight * s) / 2, text, s, kText);
+  }
+  if (total > rows) {  // where this page is in the answer: a short mark under the text
+    const int track = 24 * s, tx = (w - track) / 2, ty = h - 2 * s;
+    const int thumb = std::max(4 * s, track * rows / total);
+    c.fill_rect(tx, ty, track, s, kFaint);
+    c.fill_rect(tx + (track - thumb) * first / std::max(1, max_first), ty, thumb, s, kDim);
+  }
 }
 
 int Ui::body_rows(const UiModel& m) const {
+  if (panel_view(m) && m.screen == Screen::Card) return skin::view::card_rows();
+  if (reply_view(m)) {
+    const int room = m.notice.empty() ? info_.height : reply_pill_top(info_.height, layout_.scale);
+    return std::max(1, (room - 4 * layout_.scale) / reply_pitch(layout_.scale));
+  }
   int rows = layout_.body_rows;
   if (m.detail.empty()) return rows;
   int detail = static_cast<int>(wrap_text(m.detail, layout_.body_cols).size());
@@ -962,7 +1161,8 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
     auto detail_lines = wrap_text(m.detail, layout_.body_cols);
     int shown = layout_.body_rows - rows;
     for (int i = 0; i < shown; ++i) {
-      c.text(margin, y, detail_lines[static_cast<size_t>(i)], s, dcol);
+      const std::string& line = detail_lines[static_cast<size_t>(i)];
+      c.text(skin_on_ ? (w - Canvas::text_width(line, s)) / 2 : margin, y, line, s, dcol);
       y += lh;
     }
   }
@@ -974,7 +1174,8 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
   int first = m.scroll < 0 ? max_first : std::min(m.scroll, max_first);
   uint16_t col = m.screen == Screen::Ready ? kDim : kText;
   for (int i = 0; i < rows && first + i < total; ++i) {
-    c.text(margin, y + i * lh, lines[static_cast<size_t>(first + i)], s, col);
+    const std::string& line = lines[static_cast<size_t>(first + i)];
+    c.text(skin_on_ ? (w - Canvas::text_width(line, s)) / 2 : margin, y + i * lh, line, s, col);
   }
   if (total > rows) {
     // Scroll indicator along the right edge.
@@ -987,6 +1188,7 @@ void Ui::draw_content(Canvas& c, const UiModel& m) {
 }
 
 int Ui::dash_rows() const {
+  if (skin_on_) return skin::view::dash_rows();
   const int s = layout_.scale;
   const int content_h = info_.height - layout_.top_h - layout_.header_h - layout_.bottom_h;
   return std::max(1, (content_h - 4 * s) / (Canvas::line_height(s) + 2 * s));
@@ -1045,6 +1247,21 @@ Ui::Rect Ui::name_rect(const UiModel& m) const {
 int Ui::name_marker_x() const {
   const int s = layout_.scale;
   return info_.width - 2 * s - 3 * s - Canvas::text_width("v", s);  // name_rect's right edge, less 3s
+}
+
+int Ui::prompt_hit(const UiModel& m, int x, int y) const {
+  if (m.yes.empty() && m.no.empty()) return 0;
+  if (panel_view(m)) {
+    const skin::view::Hit hit = skin::view::hit(m, x, y, panel_.width, panel_.height);
+    return hit == skin::view::Hit::Yes ? 1 : hit == skin::view::Hit::No ? -1 : 0;
+  }
+  const int s = layout_.scale, bh = Canvas::line_height(s) + 4 * s, pad = 8 * s;
+  const HeroGeom g = hero_geom(m);
+  x -= ox_;
+  y -= oy_;
+  if (y < g.buttons_y - pad || y >= g.buttons_y + bh + pad) return 0;
+  if (x < info_.width / 2) return m.yes.empty() ? 0 : 1;
+  return m.no.empty() ? 0 : -1;
 }
 
 bool Ui::name_hit(const UiModel& m, int x, int y) const { return name_rect(m).has(x - ox_, y - oy_); }
@@ -1290,9 +1507,13 @@ std::vector<std::string> Ui::settings_desc(const UiModel& m) const {
   return wrap_text(std::string(body), cols_for(info_.width - 22 * s, s));  // the text column, beside a scroll bar
 }
 
-int Ui::settings_view_h() const { return info_.height - layout_.bottom_h - layout_.top_h - layout_.header_h; }
+int Ui::settings_view_h() const {
+  if (skin_on_) return skin::view::set_view_h();
+  return info_.height - layout_.bottom_h - layout_.top_h - layout_.header_h;
+}
 
 int Ui::settings_row_h(const UiModel& m, int i) const {
+  if (skin_on_) return skin::view::set_row_h(m, i);
   const int s = layout_.scale, base = settings_row_base(s, touch_px_);
   if (i != m.settings_sel) return base;
   const int lines = static_cast<int>(settings_desc(m).size()) +
@@ -1301,6 +1522,7 @@ int Ui::settings_row_h(const UiModel& m, int i) const {
 }
 
 int Ui::settings_row_top(const UiModel& m, int i) const {
+  if (skin_on_) return skin::view::set_row_top(m, i);
   const int s = layout_.scale, base = settings_row_base(s, touch_px_);
   // Rows above the selected one are all the base height.
   int top = 2 * s + i * (base + s);
@@ -1309,12 +1531,14 @@ int Ui::settings_row_top(const UiModel& m, int i) const {
 }
 
 int Ui::settings_max_scroll(const UiModel& m) const {
+  if (skin_on_) return skin::view::set_max_scroll(m);
   const int n = static_cast<int>(m.settings.size());
   if (n == 0) return 0;
   return std::max(0, settings_row_top(m, n - 1) + settings_row_h(m, n - 1) + 2 * layout_.scale - settings_view_h());
 }
 
 int Ui::settings_scroll_for(const UiModel& m, int scroll) const {
+  if (skin_on_) return skin::view::set_scroll_for(m, scroll);
   if (m.settings_sel < 0 || m.settings_sel >= static_cast<int>(m.settings.size())) return 0;
   const int s = layout_.scale, view = settings_view_h();
   const int base = settings_row_base(s, touch_px_);
@@ -1336,6 +1560,7 @@ int Ui::settings_scroll_for(const UiModel& m, int scroll) const {
 }
 
 int Ui::settings_row_hit(const UiModel& m, int x, int y) const {
+  if (skin_on_) return skin::view::set_row_hit(m, x, y, panel_.width, panel_.height);
   x -= ox_;
   y -= oy_ + layout_.top_h + layout_.header_h;
   if (m.screen != Screen::Settings || x < 0 || x >= info_.width || y < 0 || y >= settings_view_h()) return -1;
@@ -1361,6 +1586,7 @@ Ui::Rect Ui::settings_bar(const UiModel& m) const {
 }
 
 int Ui::settings_slider_at(const UiModel& m, int x, int y, bool anywhere) const {
+  if (skin_on_) return skin::view::set_slider_at(m, x, y, panel_.width, panel_.height, anywhere);
   const Rect bar = settings_bar(m);
   if (bar.w <= 0) return -1;
   x -= ox_;
@@ -1550,6 +1776,7 @@ void Ui::hero_anim_rows(const UiModel& m, int& y0, int& y1) const {
   };
   int top = my + size * a.eyes_y0 / 1000, bottom = my + size * a.eyes_y1 / 1000;
   band_rows(mascot::Frame::Blink, top, bottom);
+  if (skin_on_ && !(m.face && m.face->rgb565)) top = my + size * 20 / 100, bottom = my + size * 80 / 100;  // the skin's eyes and their halo
   auto add = [&](int lo, int hi) {
     top = std::min(top, lo);
     bottom = std::max(bottom, hi);
@@ -1594,7 +1821,7 @@ void Ui::draw_hero(Canvas& c, const UiModel& m) {
   const int size = g.size, mx = g.x, my = g.y;
   const mascot::Anchors& a = mascot::anchors(m.face);
   const mascot::Bitmap b = mascot::pick(size, mascot_frame(m), m.face);
-  draw_face(c, mx, my, b, m.face, kText);
+  draw_face(c, mx, my, b, m.face, skin_on_ && caption_color(m.screen) == kText ? kAccent : skin_on_ ? caption_color(m.screen) : kText);
   const int stroke = std::max(2, size / 48);
   auto waves = [&](int cx, int cy, int dir, int lit, int phase, uint16_t on, uint16_t dim, int r0) {
     for (int i = 0; i < 3; ++i) {
@@ -2182,7 +2409,7 @@ void Ui::draw_clock(const UiModel& m) {
       }
     }
 
-    if (face_y >= 0) draw_face(panel, cx + dx - face.size / 2, face_y + dy, face, m.face, kText);
+    if (face_y >= 0) draw_face(panel, cx + dx - face.size / 2, face_y + dy, face, m.face, skin_on_ ? kAccent : kText);
     panel.text(cx + dx - Canvas::text_width(m.clock_time, k) / 2, time_y + dy, m.clock_time, k, kText);
     if (Canvas::text_width(m.clock_date, ds) <= avail(date_y, date_y + Canvas::line_height(ds)))
       panel.text(cx + dx - Canvas::text_width(m.clock_date, ds) / 2, date_y + dy, m.clock_date, ds, kDim);

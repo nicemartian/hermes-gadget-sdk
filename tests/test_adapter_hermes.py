@@ -505,6 +505,12 @@ def test_a_device_without_text_cols_only_denies():
     assert shown_command("ls", {"text_cols": 25}) == "ls"
     assert shown_command("x" * 23, {"text_cols": 25}) == "x" * 23
     assert shown_command("x" * 24, {"text_cols": 25}) is None  # the device's ".." would cover its end
+    paged = {"text_cols": 25, "ask_chars": 700}  # a device that turns the pages of a long question
+    assert shown_command("x" * 24, paged) == "x" * 24
+    assert shown_command("a  b\n  c", paged) == "a  b\n  c"
+    assert shown_command("x" * 701, paged) is None
+    assert shown_command("a\tb", paged) is None
+    assert shown_command("", paged) is None
 
 
 def test_a_revoked_device_cannot_answer_its_old_questions(gadget, make_sim, monkeypatch):

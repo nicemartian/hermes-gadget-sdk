@@ -20,7 +20,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-KINDS = ("card", "action")
+KINDS = ("card", "action", "ask")
+MAX_ASK_S = 300  # the longest a yes/no question from a script stays on the device
 MAX_PENDING = 32
 EXPIRE_S = 30.0  # a request no gateway picked up in this long is dropped
 RESULT_KEEP_S = 120.0
@@ -75,6 +76,19 @@ class Desk:
                 seconds = max(0, min(int(fields.get("seconds", 20)), 3600))
             except (TypeError, ValueError):
                 seconds = 20
+            req.update(title=title, text=text, seconds=seconds)
+            if fields.get("wake") is True:  # light a dark screen for it, instead of holding it until the screen wakes
+                req["wake"] = True
+        elif kind == "ask":
+            # A yes/no question from a script on this computer (a coding agent's permission hook, say).
+            title = str(fields.get("title") or "").strip()[:MAX_TITLE]
+            text = str(fields.get("text") or "").strip()[:MAX_TEXT]
+            if not title and not text:
+                raise ValueError("write something to ask")
+            try:
+                seconds = max(5, min(int(fields.get("seconds", 60)), MAX_ASK_S))
+            except (TypeError, ValueError):
+                seconds = 60
             req.update(title=title, text=text, seconds=seconds)
         else:
             action = str(fields.get("action") or "")

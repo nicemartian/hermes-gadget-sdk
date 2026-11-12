@@ -120,13 +120,14 @@ class GadgetTTSHandle(StreamingTTSHandle):
 class _Prompt:
     """A question shown on a device, and how to hand its answer back to Hermes."""
     id: str
-    kind: str  # "slash" (tools.slash_confirm) or "approval" (tools.approval)
+    kind: str  # "slash" (tools.slash_confirm), "approval" (tools.approval) or "desk" (a script's question)
     session_key: str
     title: str
     text: str
     confirm_id: str = ""
     ttl_s: Optional[float] = None
     host_only: bool = False  # the device can't show the whole command, so its YES is refused
+    answer: Optional["asyncio.Future"] = None  # kind "desk": resolved with the yes/no
     created: float = field(default_factory=time.monotonic)
 
     def expired(self) -> bool:
@@ -179,6 +180,14 @@ def shown_command(command: str, display: dict) -> Optional[str]:
     the end of the last line it keeps.
     """
     command = (command or "").strip()
+    pages = display.get("ask_chars")
+    if isinstance(pages, int) and pages > 0:
+        # A device that turns the pages of a long question draws it line for line, spaces and
+        # all, and lets it be agreed to only after its last page was shown; what it has no glyph
+        # for it refuses itself. Tabs and other controls have no faithful drawing.
+        if not command or len(command) > pages or any(ch < " " and ch != "\n" for ch in command):
+            return None
+        return command
     cols = display.get("text_cols")
     if not command or not isinstance(cols, int) or len(command) > cols - 2 or "  " in command:
         return None
@@ -226,6 +235,10 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         self._opus_bitrate = 24000 if opus_bitrate in (None, "") else int(opus_bitrate)
         self._speak_replies = _flag(extra.get("speak_replies"), True)
         self._auto_home = _flag(extra.get("auto_home"), True)
+        # A command run for each event a paired device sends without `notify` (a button on its
+        # screen, say): `event_hook: "python3 /path/script.py"`. It gets the event's name and its
+        # data as JSON as two more arguments, and no shell.
+        self._event_hook = str(extra.get("event_hook") or "").split()
         self._battery_log_on = _flag(extra.get("battery_log"), False)
         self._dashboard_on = _flag(extra.get("dashboard"), True)
         self._profile_faces = _flag(extra.get("profile_faces"), True)
@@ -269,6 +282,8 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         self._installing: Dict[str, asyncio.Task] = {}  # device id -> staged update being installed
         self._registry_key = "default"
         self._prompts: Dict[str, List[_Prompt]] = {}  # device id -> questions, oldest (shown) first
+        self._desk_asks: set = set()  # desk request ids whose question is on a device
+        self._desk_ask_tasks: set = set()
         self._new_requested: Dict[str, float] = {}  # device id -> when it asked for a new session
         self._owner_check = None  # tests may stand in for the default profile's verdict; None = this adapter's own check
         self._routed_refused: set = set()  # owner-bound devices a route sends elsewhere, warned about once
@@ -934,6 +949,14 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
                 logger.warning("[%s] Desktop requests unreadable: %s", self.name, exc)
                 continue
             for req_id, req in batch:
+                if req.get("kind") == "ask":
+                    # A question waits for a person: it runs beside the queue, which keeps moving.
+                    if req_id not in self._desk_asks:
+                        self._desk_asks.add(req_id)
+                        task = asyncio.create_task(self._desk_ask(desk, req_id, req))
+                        self._desk_ask_tasks.add(task)
+                        task.add_done_callback(self._desk_ask_tasks.discard)
+                    continue
                 try:
                     # An earlier request in this batch can take up to 15 s; one whose page gave up
                     # meanwhile was withdrawn (its file deleted) and must not run late.
@@ -943,6 +966,38 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
                     await asyncio.to_thread(desk.finish, req_id, outcome)
                 except Exception as exc:  # one bad request doesn't hold up the rest
                     logger.warning("[%s] Desktop request failed: %s", self.name, exc)
+
+    async def _desk_ask(self, desk: Desk, req_id: str, req: Dict[str, Any]) -> None:
+        """Show a script's yes/no question and write the answer to desk/done/."""
+        outcome: Dict[str, Any] = {"ok": False, "error": "the device didn't answer"}
+        prompt: Optional[_Prompt] = None
+        session = self._hub.get(req["device"]) if self._hub else None
+        try:
+            if session is None or session.closed:
+                outcome = {"ok": False, "error": "That gadget isn't connected right now."}
+            elif not session.paired or (self._owner_bound(session) and not self._still_trusted(session)):
+                outcome = {"ok": False, "error": f"{session.name} is not approved to answer."}
+            else:
+                seconds = float(req.get("seconds") or 60)
+                prompt = _Prompt(id=uuid.uuid4().hex[:8], kind="desk", session_key="",
+                                 title=textfmt.for_device(str(req.get("title") or ""), session.charset),
+                                 text=textfmt.for_device(str(req.get("text") or ""), session.charset),
+                                 ttl_s=seconds, answer=asyncio.get_running_loop().create_future())
+                await self._ask(session, prompt)
+                try:
+                    yes = await asyncio.wait_for(prompt.answer, timeout=seconds)
+                    outcome = {"ok": True, "answer": "yes" if yes else "no"}
+                except asyncio.TimeoutError:
+                    outcome = {"ok": False, "error": "nobody answered in time"}
+                    await self._withdraw_prompt(session, prompt.id)
+        except Exception as exc:
+            outcome = {"ok": False, "error": str(exc)[:200] or "the device didn't answer"}
+            logger.warning("[%s] Desktop question failed: %s", self.name, exc)
+        finally:
+            try:
+                await asyncio.to_thread(desk.finish, req_id, outcome)
+            finally:
+                self._desk_asks.discard(req_id)
 
     async def _desk_request(self, req: Dict[str, Any]) -> Dict[str, Any]:
         session = self._hub.get(req["device"]) if self._hub else None
@@ -954,7 +1009,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
             if req["kind"] == "card":
                 title = textfmt.for_device(str(req.get("title") or ""), session.charset)
                 text = textfmt.for_device(str(req.get("text") or ""), session.charset)
-                shown = await session.show_card(title, text, int(req.get("seconds") or 0))
+                shown = await session.show_card(title, text, int(req.get("seconds") or 0), wake=req.get("wake") is True)
                 return {"ok": True, "held": shown is False}
             names = {a["name"] for a in session.actions}
             if req["action"] not in names:
@@ -1061,6 +1116,15 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
     async def on_event(self, session: DeviceSession, name: str, data: Any, notify: bool) -> None:
         logger.info("[%s] event from %s: %s %s", self.name, session.device_id, name, data)
         if not notify:
+            if self._event_hook and session.paired and re.fullmatch(r"[a-z][a-z0-9_.]{0,39}", name or ""):
+                argv = self._event_hook + [name, json.dumps(data, separators=(",", ":"))[:500]]
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL)
+                    session.spawn(proc.wait())  # reaped, never awaited here: the device is not kept waiting
+                except OSError as exc:
+                    logger.warning("[%s] event hook failed for %s: %s", self.name, name, exc)
             return
         payload = json.dumps(data, separators=(",", ":"))[:500] if data is not None else ""
         await self._forward(session, self._event(
@@ -1253,8 +1317,12 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         prompt = self._take_prompt(session.device_id, prompt_id)
         if prompt is not None and prompt.host_only and yes:
             self._prompts.setdefault(session.device_id, []).insert(0, prompt)  # still open on the host
+            await session.send_notice("Too long to approve here. Approve it on the computer.", ttl_s=8)
         elif prompt is None or prompt.expired():
             await session.send_notice("That question has expired")
+        elif prompt.kind == "desk":
+            if prompt.answer is not None and not prompt.answer.done():
+                prompt.answer.set_result(yes)
         elif prompt.kind == "slash":
             await self._answer_slash(session, prompt.session_key, prompt.confirm_id, "once" if yes else "cancel")
         else:

@@ -38,6 +38,9 @@ namespace hg::i18n {
   X(TouchTalk,              "Touch to talk") \
   X(TouchTalkOn,            "On\nTouch the screen to talk.") \
   X(TouchTalkOff,           "Off\nTalk with {0}; touch only navigates.") \
+  X(SpeakAnswers,           "Speak answers") \
+  X(SpeakAnswersOn,         "On\nHermes reads answers aloud.") \
+  X(SpeakAnswersOff,        "Off\nAnswers show as text only.") \
   X(TalkHold,               "Hold") \
   X(TalkTap,                "Tap") \
   X(MicCheck,               "Microphone check") \
@@ -235,6 +238,14 @@ namespace hg::i18n {
   X(HermesWaiting,          "Hermes is waiting for you") \
   X(AnsweredYes,            "Answered: yes") \
   X(AnsweredNo,             "Answered: no") \
+  X(TimesUp,                "Time's up") \
+  X(Cancel,                 "Cancel") \
+  X(Yes,                    "Yes") \
+  X(No,                     "No") \
+  X(Back,                   "Back") \
+  X(TooLongToShow,          "Can't show all of this") \
+  X(AnswerElsewhere,        "Too long: answer on the computer") \
+  X(TapForMore,             "tap the text for more") \
   X(Image,                  "Image") \
   /* Ready screen */ \
   X(Ready,                  "Ready") \

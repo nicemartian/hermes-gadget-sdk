@@ -18,6 +18,7 @@
 #include "hg/i18n.hpp"
 #include "hg/mascot.hpp"
 #include "hg/qr.hpp"
+#include "hg/skin.hpp"
 
 namespace hg {
 
@@ -58,6 +59,7 @@ struct DashRow {
   std::string label, value;
   Tone tone = Tone::Dim;
   bool heading = false;
+  bool sub = false;  // a line under the row above it, which it explains (the Eyes skin's sessions screen)
 };
 
 // One row of the settings list: a small icon, the item's name, and its state at the
@@ -99,8 +101,35 @@ struct UiModel {
   bool battery_charging = false;
   bool battery_low = false;
   uint32_t frame = 0;    // animation frame, advanced by the app
+  uint32_t fine = 0;     // the Eyes skin's finer frame counter (App::kFineMs each), 0 without the skin
   std::string hint;      // bottom bar
   std::string yes, no;   // answer buttons under the hero caption (Prompt screen)
+  // The Eyes skin's Ready face: what is waiting on the user ("Claude needs you"; empty: nothing),
+  // and a count that goes up each time something went well (the eyes smile for a moment).
+  std::string attention, attention_detail;  // the second line: where, and what for
+  uint8_t cheer = 0;
+  // The Eyes skin's resting and clock faces: what is playing (empty: nothing).
+  std::string music_title, music_artist;
+  // The Eyes skin's now playing screen (a tap on what is playing opens it): how far the track
+  // is, in thousandths (-1: unknown), and the two times under it ("1:42", "4:28").
+  bool music_view = false;
+  int16_t music_permille = -1;
+  std::string music_at, music_length;
+  // A running timer as the Eyes skin's face shows it: the time left ("4:59") and its label.
+  std::string timer_text, timer_label;
+  // Eyes skin: the battery mark on the resting face, a percentage while the cell is getting low
+  // and not charging, else -1.
+  int8_t battery_mark = -1;
+  bool battery_mark_low = false;
+  // Eyes skin, a question longer than the glass: the page it is on, and whether its last page
+  // has been on the glass (only then can it be agreed to from here).
+  uint8_t prompt_page = 0;
+  bool prompt_seen = false;
+  std::string notice;  // Eyes skin, answer view: a notice shown in a pill under the answer
+  // The last touch on the resting face: the eyes glance that way. `glance` goes up with each
+  // one; the direction is in hundredths of the half panel, right and down positive.
+  uint8_t glance = 0;
+  int8_t glance_x = 0, glance_y = 0;
   // Show the mascot as large as fits, with headline/detail as a caption,
   // instead of the header + text layout.
   bool hero = false;
@@ -142,6 +171,7 @@ struct UiModel {
   std::string clock_time, clock_date;
   uint8_t clock_minute = 0;
   uint8_t clock_second = 0;
+  uint8_t clock_hour = 0;  // 0..23, whatever the time format: the Eyes skin's clock is sleepy at night
 };
 
 struct UiLayout {
@@ -192,6 +222,10 @@ class Ui {
   void render(const UiModel& model);
   // Forces a full redraw on the next render (after something else drew).
   void invalidate();
+  // The Eyes skin (hg/skin.hpp) draws the mascot screens instead of the stock renderer, on a
+  // round panel whose framebuffer holds every row. `frame_ms` is the model's frame period.
+  void set_skin(bool on, uint32_t frame_ms);
+  bool skinned(const UiModel& m) const;
   // Frame timing: while `stats` is set, every render is timed with `clock` and
   // recorded there. Null (the default) turns it off and leaves the clock unread.
   void measure(FrameStats* stats, System* clock);
@@ -206,6 +240,10 @@ class Ui {
   void flush(int y0, int y1);
   // Body text rows visible on a text screen for this model (after detail lines).
   int body_rows(const UiModel& m) const;
+  // The columns a body line wraps to on this screen (the Eyes skin's answer view sets larger text).
+  int body_cols(const UiModel& m) const;
+  // The Eyes skin's answer view: nothing but the reply, larger and centred.
+  bool reply_view(const UiModel& m) const;
   // Dashboard rows that fit the content band.
   int dash_rows() const;
   // The largest size the Ready screen draws the face at (one caption line, no name panel): a colour face
@@ -239,9 +277,21 @@ class Ui {
   // The side of the largest profile icon this panel draws (a page of up to four, at the touch size
   // set): the size Hermes sends thumbnails at, at most `cap`. 0 without a grid.
   int profile_thumb_px(int cap) const;
+  // A question's answer under a touch: +1 yes, -1 no, 0 neither (a finger's margin around the buttons).
+  int prompt_hit(const UiModel& m, int x, int y) const;
+  // The Eyes skin's whole-panel screens (skin::view): whether this model is one, what a tap at
+  // panel (x, y) lands on besides a question's answers (0 nothing, 1 the way back, 2 the screen's
+  // own button), and whether a question's text is on the glass in full.
+  bool panel_view(const UiModel& m) const;
+  int view_hit(const UiModel& m, int x, int y) const;
+  bool prompt_whole(const UiModel& m) const;
+  int prompt_pages(const UiModel& m) const;
   bool title_hit(int x, int y) const {
     const int left = ox_ + (info_.width - layout_.title_w) / 2;
-    return x >= left && x < left + layout_.title_w && y >= oy_ && y < oy_ + layout_.top_h;
+    // The Eyes skin's target reaches up to the glass edge and a little under the band: a finger
+    // finds the top of a round screen more easily than a 36-pixel strip.
+    const int top = skin_on_ ? 0 : oy_, bottom = oy_ + layout_.top_h + (skin_on_ ? 4 * layout_.scale : 0);
+    return x >= left && x < left + layout_.title_w && y >= top && y < bottom;
   }
 
  private:
@@ -302,6 +352,7 @@ class Ui {
   };
   HeroGeom hero_geom(const UiModel& m) const;
   void draw_hero(Canvas& c, const UiModel& m);
+  void draw_reply(Canvas& c, const UiModel& m);
   // Rows [y0, y1) that hero animations may touch for this screen.
   void hero_anim_rows(const UiModel& m, int& y0, int& y1) const;
   // Round panels: the edge ring (set_ring derives what its pixels need once per frame;
@@ -320,6 +371,8 @@ class Ui {
   void draw_alarm(const UiModel& m);
   void draw_clock(const UiModel& m);
   void draw_battery_face(const UiModel& m);  // LowBattery, Charging, Charged
+  void draw_skin(const UiModel& m);
+  void draw_view(const UiModel& m);
   Display& display_;
   DisplayInfo panel_;
   DisplayInfo info_;
@@ -333,6 +386,8 @@ class Ui {
   uint32_t hero_static_ = 0, hero_anim_ = 0;
   uint32_t battery_hash_ = 0;
   bool hero_valid_ = false;
+  bool reply_valid_ = false;
+  uint32_t reply_key_ = 0;
   bool valid_ = false;
   // frame timing (measure)
   FrameStats* stats_ = nullptr;
@@ -365,8 +420,11 @@ class Ui {
   // The screen that owns the whole panel right now, and the hash of what it drew.
   // Leaving it repaints everything (draw_frame); each face repaints when the flag
   // is not itself, so Clock -> Alarm -> Clock in one minute still redraws.
-  enum class FullFace : uint8_t { None, Alarm, Clock, Battery };
+  enum class FullFace : uint8_t { None, Alarm, Clock, Battery, Skin, View };
   FullFace full_face_ = FullFace::None;
+  bool view_list_ = false;  // the skin view on the glass is a list (draw_view sends its rows alone)
+  bool skin_on_ = false;
+  skin::Eyes eyes_;
   uint32_t face_hash_ = 0;
 };
 
